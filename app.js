@@ -292,7 +292,8 @@
   }
 
   function fetchJSON(url) {
-    return fetch(url).then(function (r) {
+    // cache-buster: every load gets a unique URL so updates appear instantly
+    return fetch(url + '?v=' + Date.now()).then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
     });
