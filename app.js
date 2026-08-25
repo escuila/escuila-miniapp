@@ -298,12 +298,19 @@
     });
   }
 
+  // Try data/ first, then repo root (GitHub upload sometimes flattens folders).
+  function fetchFirst(file) {
+    return fetchJSON('data/' + file).catch(function () {
+      return fetchJSON(file);
+    });
+  }
+
   function boot() {
     viewEl.innerHTML = '<div class="loading">⏳ جارٍ التحميل…</div>';
     Promise.all([
-      fetchJSON('data/categories.json'),
-      fetchJSON('data/files.json'),
-      fetchJSON('data/settings.json').catch(function () { return { bot_username: '' }; })
+      fetchFirst('categories.json'),
+      fetchFirst('files.json'),
+      fetchFirst('settings.json').catch(function () { return { bot_username: '' }; })
     ]).then(function (res) {
       state.cats = res[0].categories || [];
       state.files = res[1].files || [];
