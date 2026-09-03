@@ -362,3 +362,81 @@ body {
   line-height: 1.8;
   margin-top: 8px;
 }
+
+/* ─── v3: stats / refresh / favorites / filter / breadcrumb ─── */
+
+.stat-line {
+  color: var(--hint);
+  font-size: 13px;
+  margin: 0 4px 14px;
+}
+
+.section-title.with-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.link-btn {
+  margin-inline-start: auto;
+  background: none;
+  border: none;
+  color: var(--link);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.btn-row {
+  display: flex;
+  gap: 10px;
+}
+
+.btn-row .secondary-btn { flex: 1; }
+
+.fav-on {
+  color: #b45309;
+  font-weight: 700;
+}
+
+.chipbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.fchip {
+  border: none;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 13px;
+  background: var(--secondary-bg);
+  color: var(--hint);
+  cursor: pointer;
+}
+
+.fchip.on {
+  background: var(--btn);
+  color: var(--btn-text);
+  font-weight: 700;
+}
+
+.crumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 4px;
+  margin-bottom: 18px;
+}
+
+.crumb-btn {
+  background: none;
+  border: none;
+  color: var(--link);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 2px 0;
+}
+
+.crumb-sep { color: var(--hint); font-size: 12px; }
