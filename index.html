@@ -12,10 +12,10 @@
 </head>
 <body>
 <header id="topbar">
-  <div id="brand">📚 مكتبة Escuila</div>
+  <div id="brand"><img id="logo" src="assets/logo.png" alt="Escuila"></div>
   <div id="searchwrap">
-    <input id="search" type="search" placeholder="ابحث عن درس أو فرض…" autocomplete="off">
-    <button id="clearSearch" type="button" aria-label="مسح" hidden>✕</button>
+    <input id="search" type="search" placeholder="ابحث عن درس، فرض، مادة…" autocomplete="off">
+    <button id="clearSearch" type="button" aria-label="مسح البحث" hidden>✕</button>
   </div>
 </header>
 
@@ -29,12 +29,14 @@
 
 <nav id="bottombar">
   <div id="bar-inner">
-    <button id="btnHome" type="button">🏠 الرئيسية</button>
-    <button id="btnFavs" type="button">⭐ المفضلة</button>
-    <button id="btnBack" type="button" hidden>⬅️ رجوع</button>
+    <button class="tab active" data-tab="home" type="button"><span class="ticon">🏠</span><span class="tlabel">الرئيسية</span></button>
+    <button class="tab" data-tab="library" type="button"><span class="ticon">📚</span><span class="tlabel">المكتبة</span></button>
+    <button class="tab" data-tab="search" type="button"><span class="ticon">🔍</span><span class="tlabel">البحث</span></button>
+    <button class="tab" data-tab="favs" type="button"><span class="ticon">⭐</span><span class="tlabel">المفضلة</span></button>
   </div>
 </nav>
 
 <div id="toast" hidden></div>
+<div id="sheet-backdrop" hidden></div>
 </body>
 </html>
