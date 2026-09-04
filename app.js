@@ -30,6 +30,7 @@
   var toastEl = document.getElementById('toast');
   var btnBack = document.getElementById('btnBack');
   var btnHome = document.getElementById('btnHome');
+  var btnFavs = document.getElementById('btnFavs');
 
   /* ─── data layer ─── */
 
@@ -64,6 +65,8 @@
     return nodes;
   }
 
+  // all matches, best (earliest position) first — the view decides how many
+  // to show and whether to tell the user about the rest
   function searchFiles(q) {
     var scored = [];
     state.files.forEach(function (f) {
@@ -73,7 +76,7 @@
       scored.push({ f: f, score: idx });
     });
     scored.sort(function (a, b) { return a.score - b.score; });
-    return scored.slice(0, 60).map(function (s) { return s.f; });
+    return scored.map(function (s) { return s.f; });
   }
 
   function searchCats(q) {
@@ -97,8 +100,15 @@
 
   /* ─── ui helpers ─── */
 
-  function haptic() {
-    try { if (tg && tg.HapticFeedback) tg.HapticFeedback.selectionChanged(); } catch (e) { /* noop */ }
+  function haptic(kind) {
+    try {
+      if (!tg || !tg.HapticFeedback) return;
+      if (kind === 'light' && tg.HapticFeedback.impactOccurred) {
+        tg.HapticFeedback.impactOccurred('light');
+      } else {
+        tg.HapticFeedback.selectionChanged();
+      }
+    } catch (e) { /* noop */ }
   }
 
   var toastTimer = null;
@@ -116,9 +126,13 @@
     return node;
   }
 
-  /* ─── local data: favorites + recents (device only, never synced) ─── */
+  /* ─── local data: favorites + recents ───
+     Favorites: localStorage is the instant source of truth ({ids, t});
+     Telegram CloudStorage mirrors it across the user's devices (no backend).
+     Newest write wins — simple and predictable. */
 
-  var FAV_KEY = 'escuila_favs';
+  var FAV_KEY = 'escuila_favs_v2';      // {ids:[...], t: lastWriteTs}
+  var FAV_LEGACY_KEY = 'escuila_favs';  // v1 plain array — read once, migrated
   var RECENT_KEY = 'escuila_recents';
 
   function lsGet(key, fallback) {
@@ -132,22 +146,77 @@
     try { window.localStorage.setItem(key, JSON.stringify(val)); } catch (e) { /* private mode */ }
   }
 
-  function favIds() { return lsGet(FAV_KEY, []); }
+  function lsRemove(key) {
+    try { window.localStorage.removeItem(key); } catch (e) { /* noop */ }
+  }
+
+  function loadFavs() {
+    var v2 = lsGet(FAV_KEY, null);
+    if (v2 && Array.isArray(v2.ids)) return { ids: v2.ids, t: v2.t || 0 };
+    var legacy = lsGet(FAV_LEGACY_KEY, []);
+    return { ids: Array.isArray(legacy) ? legacy : [], t: 0 };
+  }
+
+  function favIds() { return loadFavs().ids; }
 
   function isFav(id) { return favIds().indexOf(id) !== -1; }
 
   function toggleFav(id) {
-    var ids = favIds();
-    var i = ids.indexOf(id);
+    var fav = loadFavs();
+    var i = fav.ids.indexOf(id);
     if (i === -1) {
-      ids.unshift(id);
-      lsSet(FAV_KEY, ids);
+      fav.ids.unshift(id);
       showToast('⭐ أُضيف إلى المفضلة');
     } else {
-      ids.splice(i, 1);
-      lsSet(FAV_KEY, ids);
+      fav.ids.splice(i, 1);
       showToast('أُزيل من المفضلة');
     }
+    fav.t = Date.now();
+    lsSet(FAV_KEY, fav);
+    cloudSetFavs(fav);
+  }
+
+  function cloudGetFavs() {
+    return new Promise(function (resolve) {
+      try {
+        if (!tg || !tg.CloudStorage || !tg.CloudStorage.get) return resolve(null);
+        tg.CloudStorage.get('escuila_favs', function (err, val) { resolve(err ? null : val); });
+      } catch (e) { resolve(null); }
+    });
+  }
+
+  function cloudSetFavs(payload) {
+    try {
+      if (tg && tg.CloudStorage && tg.CloudStorage.set) {
+        tg.CloudStorage.set('escuila_favs', JSON.stringify(payload));
+      }
+    } catch (e) { /* storage unavailable — local only */ }
+  }
+
+  function syncFavsFromCloud() {
+    cloudGetFavs().then(function (raw) {
+      var cloud = null;
+      try { cloud = raw ? JSON.parse(raw) : null; } catch (e) { cloud = null; }
+      var local = loadFavs();
+      var localT = local.t || 0;
+      var cloudT = cloud && Array.isArray(cloud.ids) ? (cloud.t || 0) : -1;
+      if (cloudT > localT) {
+        // cloud is newer (edited on another device) — adopt it
+        lsSet(FAV_KEY, cloud);
+        lsRemove(FAV_LEGACY_KEY);
+        var top = state.stack[state.stack.length - 1].type;
+        if (top === 'favs' || top === 'home') render();
+      } else if (localT > cloudT && (localT > 0 || local.ids.length)) {
+        // local is newer — publish it; a legacy-only device stamps its first
+        // real write so the migration counts as an actual edit
+        if (!localT) {
+          local.t = Date.now();
+          lsSet(FAV_KEY, local);
+        }
+        cloudSetFavs(local);
+      }
+      // equal timestamps mean identical payloads — nothing to do
+    });
   }
 
   function filesByIds(ids) {
@@ -218,11 +287,13 @@
   }
 
   // Best embed URL for a public file link, or null if it should not be
-  // embedded at all (unknown scheme). Direct PDFs go through the Google Docs
-  // viewer because mobile browsers rarely render PDFs in a plain iframe.
+  // embedded at all. Telegram pages block framing; direct PDFs go through
+  // the Google Docs viewer because mobile browsers rarely render PDFs in a
+  // plain iframe.
   function embedUrl(url) {
     if (!url || !/^https:\/\//i.test(url)) return null;
     if (isImageUrl(url)) return null;
+    if (/^https:\/\/t\.me\//i.test(url)) return null;
     var drv = drivePreview(url);
     if (drv) return drv;
     if (/\.pdf(\?|#|$)/i.test(url)) {
@@ -252,14 +323,21 @@
     return btn;
   }
 
+  // three access states: free (in-app viewer), vip (exclusive, bot gate),
+  // bot (free but no embeddable link — internal media id, t.me post, …)
+  function fileAccess(f) {
+    if (f.u) return 'free';
+    return f.r === 'vip' ? 'vip' : 'bot';
+  }
+
   function fileRow(f) {
     var btn = el('button', 'card');
     btn.type = 'button';
     btn.appendChild(el('div', 'icon', fileIcon(f.n)));
     btn.appendChild(el('div', 'label', f.n));
-    // free files open in the embedded viewer; the rest route via the bot
-    btn.appendChild(el('span', f.u ? 'chip chip-free' : 'chip chip-vip',
-      f.u ? 'مجاني' : 'VIP'));
+    var access = fileAccess(f);
+    btn.appendChild(el('span', 'chip chip-' + access,
+      access === 'free' ? 'مجاني' : (access === 'vip' ? 'VIP' : 'عبر البوت')));
     btn.addEventListener('click', function () { openFileDetails(f); });
     return btn;
   }
@@ -471,26 +549,31 @@
     return 'https://t.me/' + state.botUsername + '?start=file_' + f.id;
   }
 
-  // Handoff to the bot chat. openTelegramLink alone switches to the chat
+  // Open a t.me URL. openTelegramLink alone switches to the target chat
   // BEHIND the webview on some clients, forcing a manual app exit — closing
-  // the app right after brings the delivered file in front immediately.
-  function openBotChat(startParam) {
-    if (!state.botUsername) {
-      showToast('لم يتم ضبط معرّف البوت');
-      return;
-    }
-    haptic();
-    var url = 'https://t.me/' + state.botUsername + (startParam ? '?start=' + startParam : '');
+  // the app right after (closeAfter) brings the target in front immediately.
+  function openTelegramUrl(url, closeAfter) {
+    haptic('light');
     try {
       if (tg && tg.openTelegramLink) {
         tg.openTelegramLink(url);
-        setTimeout(function () { try { tg.close(); } catch (e) { /* already closed */ } }, 300);
+        if (closeAfter) {
+          setTimeout(function () { try { tg.close(); } catch (e) { /* already closed */ } }, 300);
+        }
       } else {
         window.open(url, '_blank');
       }
     } catch (e) {
       window.open(url, '_blank');
     }
+  }
+
+  function openBotChat(startParam) {
+    if (!state.botUsername) {
+      showToast('لم يتم ضبط معرّف البوت');
+      return;
+    }
+    openTelegramUrl('https://t.me/' + state.botUsername + (startParam ? '?start=' + startParam : ''), true);
   }
 
   function openInBot(f) {
@@ -562,16 +645,28 @@
     if (crumb.children.length) box.appendChild(crumb);
 
     // access badge mirrors the export rule: URL present == bot shows it to everyone
-    box.appendChild(el('div',
-      f.u ? 'detail-badge badge-free' : 'detail-badge badge-vip',
-      f.u ? '🟢 مجاني — يُقرأ داخل التطبيق' : '🔒 حصري — الوصول عبر البوت'));
+    var access = fileAccess(f);
+    var badge = {
+      free: ['detail-badge badge-free', '🟢 مجاني — يُقرأ داخل التطبيق'],
+      vip: ['detail-badge badge-vip', '🔒 حصري — الوصول عبر البوت'],
+      bot: ['detail-badge badge-bot', '🤖 مجاني — يُسلَّم عبر البوت']
+    }[access];
+    box.appendChild(el('div', badge[0], badge[1]));
 
-    if (f.u) {
+    if (access === 'free' && /^https:\/\/t\.me\//i.test(f.u)) {
+      // telegram pages can't be framed — hand straight to the app
+      var tgOpen = el('button', 'primary-btn');
+      tgOpen.type = 'button';
+      tgOpen.textContent = '📱 فتح في تيليجرام';
+      tgOpen.addEventListener('click', function () { openTelegramUrl(f.u, true); });
+      box.appendChild(tgOpen);
+      box.appendChild(favShareRow(f));
+    } else if (access === 'free') {
       var read = el('button', 'primary-btn');
       read.type = 'button';
       read.textContent = '👁️ قراءة داخل التطبيق';
       read.addEventListener('click', function () {
-        haptic();
+        haptic('light');
         push({ type: 'viewer', file: f });
       });
       box.appendChild(read);
@@ -582,7 +677,7 @@
       inBrowser.type = 'button';
       inBrowser.textContent = '🌐 فتح في المتصفح';
       inBrowser.addEventListener('click', function () {
-        haptic();
+        haptic('light');
         if (tg && tg.openLink) tg.openLink(f.u);
         else window.open(f.u, '_blank');
       });
@@ -602,8 +697,9 @@
 
       box.appendChild(favShareRow(f));
 
-      box.appendChild(el('div', 'detail-note',
-        'هذا الملف حصري (VIP). يتم التحقق من اشتراكك وتسليم الملف داخل محادثة البوت.'));
+      box.appendChild(el('div', 'detail-note', access === 'vip'
+        ? 'هذا الملف حصري (VIP). يتم التحقق من اشتراكك وتسليم الملف داخل محادثة البوت.'
+        : 'يتم تسليم هذا الملف داخل محادثة البوت مباشرة.'));
     }
 
     viewEl.appendChild(box);
@@ -708,7 +804,11 @@
     }
     if (files.length) {
       viewEl.appendChild(el('div', 'section-title', 'الملفات'));
-      files.forEach(function (f) { viewEl.appendChild(fileRow(f)); });
+      files.slice(0, 60).forEach(function (f) { viewEl.appendChild(fileRow(f)); });
+      if (files.length > 60) {
+        viewEl.appendChild(el('div', 'result-meta',
+          '✂️ تُعرض أول 60 نتيجة من أصل ' + files.length + ' — جرّب كلمات أدق لعرض البقية.'));
+      }
     }
   }
 
@@ -753,6 +853,10 @@
 
   btnHome.addEventListener('click', goHome);
   btnBack.addEventListener('click', function () { haptic(); goBack(); });
+  btnFavs.addEventListener('click', function () {
+    haptic();
+    push({ type: 'favs' });
+  });
 
   // registered ONCE here — re-registering inside render() stacked duplicate
   // listeners, making one back-press pop several views
@@ -773,40 +877,70 @@
     viewEl.appendChild(box);
   }
 
+  function showSkeleton() {
+    viewEl.innerHTML = '';
+    for (var i = 0; i < 6; i++) viewEl.appendChild(el('div', 'skel skel-card'));
+  }
+
+  function applyColorScheme() {
+    try {
+      document.body.classList.toggle('dark', !!(tg && tg.colorScheme === 'dark'));
+      if (tg && tg.onEvent) {
+        tg.onEvent('themeChanged', function () {
+          document.body.classList.toggle('dark', tg.colorScheme === 'dark');
+        });
+      }
+    } catch (e) { /* noop */ }
+  }
+
   function fetchJSON(url) {
-    // cache-buster: every load gets a unique URL so updates appear instantly
-    return fetch(url + '?v=' + Date.now()).then(function (r) {
+    return fetch(url).then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.json();
     });
   }
 
   // Try data/ first, then repo root (GitHub upload sometimes flattens folders).
-  function fetchFirst(file) {
-    return fetchJSON('data/' + file).catch(function () {
-      return fetchJSON(file);
+  // v is the exported data version: identical v hits the browser cache, so
+  // repeat opens cost nothing until the next export bumps it.
+  function fetchFirst(file, v) {
+    var q = '?v=' + v;
+    return fetchJSON('data/' + file + q).catch(function () {
+      return fetchJSON(file + q);
     });
   }
 
   function boot() {
-    viewEl.innerHTML = '';
-    viewEl.appendChild(el('div', 'loading', '⏳ جارٍ تحميل الأقسام…'));
-    Promise.all([
-      fetchFirst('categories.json'),
-      fetchFirst('files.json'),
-      fetchFirst('settings.json').catch(function () { return { bot_username: '' }; })
-    ]).then(function (res) {
-      state.cats = res[0].categories || [];
-      state.files = res[1].files || [];
-      state.fileById = {};
-      state.files.forEach(function (f) { state.fileById[f.id] = f; });
-      state.botUsername = res[2].bot_username || '';
-      state.stack = [{ type: 'home' }];
-      state.catFilter = 'all';
-      render();
-    }).catch(function () {
-      fail('حدث خطأ أثناء تحميل البيانات');
-    });
+    showSkeleton();
+    applyColorScheme();
+    // settings.json is tiny — fetched fresh (unique URL) to learn the data
+    // version; the big files then reuse the browser cache until next export
+    fetchJSON('data/settings.json?v=' + Date.now())
+      .catch(function () { return fetchJSON('settings.json?v=' + Date.now()); })
+      .catch(function () { return { bot_username: '', version: 0 }; })
+      .then(function (s) {
+        state.botUsername = s.bot_username || '';
+        var v = s.version || Date.now();
+        return Promise.all([
+          fetchFirst('categories.json', v),
+          fetchFirst('files.json', v)
+        ]);
+      })
+      .then(function (res) {
+        state.cats = res[0].categories || [];
+        state.files = res[1].files || [];
+        state.fileById = {};
+        state.files.forEach(function (f) { state.fileById[f.id] = f; });
+        state.stack = [{ type: 'home' }];
+        state.catFilter = 'all';
+        render();
+        syncFavsFromCloud();
+      })
+      .catch(function () {
+        fail(navigator.onLine === false
+          ? 'لا يوجد اتصال بالإنترنت — تحقق من الشبكة ثم أعد المحاولة.'
+          : 'حدث خطأ أثناء تحميل البيانات');
+      });
   }
 
   boot();

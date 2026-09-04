@@ -4,9 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="style.css">
 <title>Escuila — المكتبة</title>
+<script defer src="https://telegram.org/js/telegram-web-app.js"></script>
+<script defer src="app.js"></script>
 </head>
 <body>
 <header id="topbar">
@@ -18,15 +20,21 @@
 </header>
 
 <main id="view">
-  <div class="loading">⏳ جارٍ التحميل…</div>
+  <div class="skel skel-card"></div>
+  <div class="skel skel-card"></div>
+  <div class="skel skel-card"></div>
+  <div class="skel skel-card"></div>
+  <div class="skel skel-card"></div>
 </main>
 
 <nav id="bottombar">
-  <button id="btnHome" type="button">🏠 الرئيسية</button>
-  <button id="btnBack" type="button" hidden>⬅️ رجوع</button>
+  <div id="bar-inner">
+    <button id="btnHome" type="button">🏠 الرئيسية</button>
+    <button id="btnFavs" type="button">⭐ المفضلة</button>
+    <button id="btnBack" type="button" hidden>⬅️ رجوع</button>
+  </div>
 </nav>
 
 <div id="toast" hidden></div>
-<script src="app.js"></script>
 </body>
 </html>
