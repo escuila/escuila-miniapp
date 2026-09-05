@@ -681,12 +681,14 @@
       cont.appendChild(cinfo);
       cont.appendChild(el('div', 'chev', '◀'));
       cont.addEventListener('click', function () {
-        haptic('light');
+        if (tooSoon()) return;
         var access = fileAccess(last);
         if (access === 'free' && !/^https:\/\/t\.me\//i.test(last.u)) {
+          haptic('light');
+          recordRecent(last.id);
           push({ type: 'viewer', file: last });
         } else {
-          push({ type: 'file', file: last });
+          openFileDetails(last);
         }
       });
       viewEl.appendChild(cont);
@@ -885,7 +887,7 @@
     }
 
     var files = applyFilters(searchFiles(q));
-    var cats = state.filtersActive() ? [] : searchCats(q);
+    var cats = filtersActive() ? [] : searchCats(q);
 
     var meta = el('div', 'result-meta',
       'نتائج البحث عن: «' + state.query + '» — ' + (files.length + cats.length) + ' نتيجة');
@@ -1003,7 +1005,7 @@
     head.appendChild(closeBtn);
     sheet.appendChild(head);
 
-    function group(label, values, current, key, orderFn) {
+    function group(label, values, current, key, orderFn, labelFn) {
       var keys = Object.keys(values);
       if (!keys.length) return;
       var g = el('div', 'fgroup');
@@ -1012,7 +1014,7 @@
       keys.sort(orderFn).forEach(function (v) {
         var chip = el('button', 'fchip' + (current[k] === v ? ' on' : ''));
         chip.type = 'button';
-        chip.textContent = v;
+        chip.textContent = labelFn ? labelFn(v) : v;
         chip.addEventListener('click', function () {
           haptic();
           current[k] = current[k] === v ? '' : v;
@@ -1047,16 +1049,15 @@
     group('النوع', tpSet, draft, 'tp', function (a, b) {
       return TYPES.findIndex(function (t) { return t.key === a; })
         - TYPES.findIndex(function (t) { return t.key === b; });
-    });
+    }, function (v) { return (TYPES.find(function (t) { return t.key === v; }) || {}).label || v; });
     group('الوصول', acSet, draft, 'ac', function (a, b) {
       return ['free', 'bot', 'vip'].indexOf(a) - ['free', 'bot', 'vip'].indexOf(b);
-    });
+    }, function (v) { return ACCESS_LABEL[v] || v; });
     // chip labels for type/access groups use canonical labels
     Array.prototype.forEach.call(sheet.querySelectorAll('.fgroup-chips'), function () { /* noop */ });
 
     if (!sheet.querySelector('.fgroup')) {
-      viewEl.innerHTML = '';
-      viewEl.appendChild(emptyBox('لا تتوفر فلاتر لهذه القائمة.'));
+      showToast('لا تتوفر فلاتر إضافية لهذه القائمة');
       return;
     }
 
@@ -1110,6 +1111,24 @@
     favs.forEach(function (f) { list.appendChild(fileRow(f)); });
     viewEl.appendChild(list);
     viewEl.appendChild(el('div', 'detail-note', 'لإزالة ملف: افتحه ثم اضغط «★ في المفضلة».'));
+  }
+
+  // guards against double-tap opening the same file twice
+  var lastTapTs = 0;
+  function tooSoon(ms) {
+    var now = Date.now();
+    if (now - lastTapTs < (ms || 500)) return true;
+    lastTapTs = now;
+    return false;
+  }
+
+  // single entry point for opening a file's details from ANY card
+  // (home rows, library lists, search, favorites, deep links)
+  function openFileDetails(f) {
+    if (tooSoon()) return;
+    haptic('light');
+    recordRecent(f.id);
+    push({ type: 'file', file: f });
   }
 
   /* ─── file details ─── */
@@ -1194,16 +1213,8 @@
 
       box.appendChild(favShareRow(f));
 
-      var inBrowser = el('button', 'secondary-btn');
-      inBrowser.type = 'button';
-      inBrowser.textContent = '🌐 فتح في المتصفح';
-      inBrowser.addEventListener('click', function () {
-        haptic('light');
-        if (tg && tg.openLink) tg.openLink(f.u);
-        else window.open(f.u, '_blank');
-      });
-      box.appendChild(inBrowser);
-
+      // browser opening lives in the viewer only (MainButton there) —
+      // no duplicate "فتح في المتصفح" entry points
       var inBot = el('button', 'secondary-btn');
       inBot.type = 'button';
       inBot.textContent = '🤖 عبر البوت';
@@ -1378,6 +1389,8 @@
       stage.appendChild(frame);
     } else {
       spinner.hidden = true;
+      hint.hidden = false;
+      hint.textContent = '⚠️ تعذّر عرض هذا الملف داخل التطبيق — استخدم أزرار الفتح بالأسفل.';
     }
     wrap.appendChild(stage);
 
@@ -1387,11 +1400,15 @@
     wrap.appendChild(hint);
 
     var actions = el('div', 'viewer-actions');
-    var inBrowser = el('button', 'primary-btn');
-    inBrowser.type = 'button';
-    inBrowser.textContent = '🌐 فتح في المتصفح';
-    inBrowser.addEventListener('click', openExternal);
-    actions.appendChild(inBrowser);
+    var hasMain = !!(tg && tg.MainButton && tg.MainButton.setText);
+    if (!hasMain) {
+      // fallback: no native MainButton -> a single in-flow button
+      var inBrowser = el('button', 'primary-btn');
+      inBrowser.type = 'button';
+      inBrowser.textContent = '🌐 فتح في المتصفح';
+      inBrowser.addEventListener('click', openExternal);
+      actions.appendChild(inBrowser);
+    }
 
     var inBot = el('button', 'secondary-btn');
     inBot.type = 'button';
@@ -1402,8 +1419,8 @@
 
     viewEl.appendChild(wrap);
 
-    // native MainButton = "open in browser" while the viewer is on screen
-    setMainButton('🌐 فتح في المتصفح', openExternal);
+    // native MainButton = the one "open in browser" affordance in Telegram
+    setMainButton(hasMain ? '🌐 فتح في المتصفح' : null, hasMain ? openExternal : null);
 
     // slow-source nudge: after 6s point the user at the fallback buttons
     setTimeout(function () {
@@ -1413,9 +1430,15 @@
     }, 6000);
 
     function openExternal() {
+      if (tooSoon(700)) return;
       haptic('light');
-      if (tg && tg.openLink) tg.openLink(f.u);
-      else window.open(f.u, '_blank');
+      try {
+        if (tg && tg.openLink) tg.openLink(f.u);
+        else window.open(f.u, '_blank');
+      } catch (e) {
+        hint.hidden = false;
+        hint.textContent = '⚠️ تعذّر فتح الملف حالياً، يرجى المحاولة مرة أخرى.';
+      }
     }
   }
 
