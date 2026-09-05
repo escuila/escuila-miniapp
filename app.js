@@ -575,19 +575,16 @@
 
   // list card: cover thumbnail + name + meta + access chip
   function fileRow(f) {
-    var btn = el('button', 'fcard');
+    var btn = el('button', 'gcard');
     btn.type = 'button';
 
-    btn.appendChild(coverEl(f, true));
+    btn.appendChild(coverEl(f, false));
 
-    var info = el('div', 'fcard-info');
-    info.appendChild(el('div', 'fcard-name', f.n));
+    btn.appendChild(el('div', 'gcard-name', f.n));
     var meta = metaLine(f);
-    if (meta) info.appendChild(el('div', 'fcard-meta', meta));
-    info.appendChild(accessChip(f));
-    btn.appendChild(info);
+    if (meta) btn.appendChild(el('div', 'fcard-meta', meta));
+    btn.appendChild(accessChip(f));
 
-    btn.appendChild(chevEl());
     btn.addEventListener('click', function () { openFileDetails(f); });
     return btn;
   }
@@ -602,10 +599,18 @@
     return btn;
   }
 
-  function hScrollRow(title, files) {
+  function hScrollRow(title, files, onAll) {
     var wrap = el('div', 'section');
     var head = el('div', 'section-head');
     head.appendChild(el('div', 'section-title', title));
+    if (onAll) {
+      var all = el('button', 'link-btn');
+      all.type = 'button';
+      all.appendChild(el('span', null, 'عرض الكل'));
+      all.appendChild(svgIcon('chevLeft', 12));
+      all.addEventListener('click', function () { haptic(); onAll(); });
+      head.appendChild(all);
+    }
     wrap.appendChild(head);
     var row = el('div', 'row-scroll');
     files.forEach(function (f) { row.appendChild(miniCard(f)); });
@@ -635,6 +640,36 @@
     t.innerHTML = text;
     box.appendChild(t);
     return box;
+  }
+
+  function sectionTitle(text, trailing) {
+    var head = el('div', 'section-title with-action');
+    head.appendChild(el('span', null, text));
+    if (trailing) head.appendChild(trailing);
+    return head;
+  }
+
+  // renders long lists in batches with a "show more" control
+  function renderBatched(container, items, itemBuilder, batch) {
+    batch = batch || 40;
+    var shown = 0;
+    function appendNext() {
+      var slice = items.slice(shown, shown + batch);
+      slice.forEach(function (it) { container.appendChild(itemBuilder(it)); });
+      shown += slice.length;
+      if (shown < items.length) {
+        var more = el('button', 'secondary-btn more-btn',
+          'عرض المزيد (' + (items.length - shown) + ' متبقٍ)');
+        more.type = 'button';
+        more.addEventListener('click', function () {
+          haptic();
+          more.remove();
+          appendNext();
+        });
+        container.appendChild(more);
+      }
+    }
+    appendNext();
   }
 
   /* ─── navigation (tabs + stack) ─── */
@@ -675,7 +710,7 @@
     else if (top.type === 'file') renderFileDetails(top.file);
     else if (top.type === 'viewer') renderViewer(top.file);
     else if (top.type === 'vip') renderVip();
-    else if (top.type === 'results') renderResults(top.source, top.q);
+    else if (top.type === 'results') renderResults(top.source, top.q, top.mode);
     else if (top.type === 'locked') renderLockedInfo(top.cat);
   }
 
@@ -700,7 +735,19 @@
     viewEl.appendChild(el('div', 'stat-line',
       state.cats.length + ' قسم · ' + state.files.length + ' ملف · ' + freeCount + ' للقراءة المباشرة'));
 
-    // continue — the file the user opened last, one tap away
+    // فئات سريعة (قيم حقيقية)
+    var levels = chipRow('حسب المستوى', levelValues(), function (lv) {
+      state.filters = { lv: lv, sb: '', tp: '', ac: '' };
+      push({ type: 'results', source: 'all' });
+    });
+    if (levels) viewEl.appendChild(levels);
+    var subjects = chipRow('حسب المادة', subjectValues(), function (sb) {
+      state.filters = { lv: '', sb: sb, tp: '', ac: '' };
+      push({ type: 'results', source: 'all' });
+    });
+    if (subjects) viewEl.appendChild(subjects);
+
+    // متابعة القراءة
     var last = filesByIds(lsGet(RECENT_KEY, []))[0];
     if (last) {
       var cont = el('button', 'continue-card');
@@ -728,26 +775,19 @@
       viewEl.appendChild(cont);
     }
 
-    var recent = recentAddedFiles(8);
-    if (recent.length) viewEl.appendChild(hScrollRow('أُضيف حديثاً', recent));
+    // اكتشاف — 6 عناصر لكل صف + عرض الكل
+    var recent = recentAddedFiles(6);
+    if (recent.length) viewEl.appendChild(hScrollRow('أُضيف حديثاً', recent, function () {
+      push({ type: 'results', source: 'all', mode: 'recent' });
+    }));
 
-    var popular = popularFiles(8);
-    if (popular.length) viewEl.appendChild(hScrollRow('الأكثر استخداماً', popular));
+    var popular = popularFiles(6);
+    if (popular.length) viewEl.appendChild(hScrollRow('الأكثر استخداماً', popular, function () {
+      push({ type: 'results', source: 'all', mode: 'popular' });
+    }));
 
-    var reco = recommendedFiles(8);
+    var reco = recommendedFiles(6);
     if (reco.length) viewEl.appendChild(hScrollRow('مقترح لك', reco));
-
-    var levels = chipRow('حسب المستوى', levelValues(), function (lv) {
-      state.filters = { lv: lv, sb: '', tp: '', ac: '' };
-      push({ type: 'results', source: 'all' });
-    });
-    if (levels) viewEl.appendChild(levels);
-
-    var subjects = chipRow('حسب المادة', subjectValues(), function (sb) {
-      state.filters = { lv: '', sb: sb, tp: '', ac: '' };
-      push({ type: 'results', source: 'all' });
-    });
-    if (subjects) viewEl.appendChild(subjects);
 
     var lockedCats = state.cats.filter(function (c) { return c.locked; });
     if (lockedCats.length) {
@@ -767,7 +807,7 @@
 
     var allBtn = el('button', 'secondary-btn');
     allBtn.type = 'button';
-    allBtn.textContent = 'استعرض كل الأقسام';
+    allBtn.textContent = 'استعرض كل الأقسام في المكتبة';
     allBtn.addEventListener('click', function () { switchTab('library', { noFocus: true }); });
     viewEl.appendChild(allBtn);
   }
@@ -777,18 +817,25 @@
   function renderLibrary() {
     viewEl.innerHTML = '';
 
-    var browseAll = el('button', 'card');
-    browseAll.type = 'button';
-    browseAll.appendChild(el('div', 'icon', '🗂️'));
-    browseAll.appendChild(el('div', 'label', 'كل الملفات مع الفلاتر'));
-    browseAll.appendChild(el('div', 'meta'));
-    browseAll.addEventListener('click', function () {
-      haptic('light');
-      state.filters = { lv: '', sb: '', tp: '', ac: '' };
-      push({ type: 'results', source: 'all' });
-    });
-    viewEl.appendChild(browseAll);
+    // تصفح سريع بالمستوى — قيم حقيقية من بيانات البوت
+    var levels = levelValues();
+    if (levels.length) {
+      viewEl.appendChild(sectionTitle('تصفح سريع حسب المستوى'));
+      var lvRow = el('div', 'chipbar');
+      levels.forEach(function (lv) {
+        var chip = el('button', 'fchip', lv);
+        chip.type = 'button';
+        chip.addEventListener('click', function () {
+          haptic();
+          state.filters = { lv: lv, sb: '', tp: '', ac: '' };
+          push({ type: 'results', source: 'all' });
+        });
+        lvRow.appendChild(chip);
+      });
+      viewEl.appendChild(lvRow);
+    }
 
+    // بنية الأقسام الكاملة — نفس شجرة البوت
     var refresh = el('button', 'link-btn');
     refresh.type = 'button';
     refresh.appendChild(svgIcon('refresh', 13));
@@ -802,6 +849,20 @@
       return;
     }
     roots.forEach(function (c) { viewEl.appendChild(catCard(c)); });
+
+    // كل الملفات مع الفلاتر
+    var browseAll = el('button', 'card');
+    browseAll.type = 'button';
+    var bIcon = el('div', 'icon');
+    bIcon.appendChild(svgIcon('folder', 20));
+    browseAll.appendChild(bIcon);
+    browseAll.appendChild(el('div', 'label', 'كل الملفات مع الفلاتر'));
+    browseAll.addEventListener('click', function () {
+      haptic('light');
+      state.filters = { lv: '', sb: '', tp: '', ac: '' };
+      push({ type: 'results', source: 'all' });
+    });
+    viewEl.appendChild(browseAll);
   }
 
   /* ─── category view ─── */
@@ -865,8 +926,8 @@
         viewEl.appendChild(buildCatAccessBar(files));
       }
 
-      var list = el('div', 'file-list');
-      fillCatList(list, files);
+      var list = el('div', 'fgrid');
+      fillFileList(list, files);
       viewEl.appendChild(list);
     }
     if (!subs.length && !files.length) {
@@ -890,15 +951,15 @@
         state.catFilter = o[0];
         Array.prototype.forEach.call(bar.children, function (n) { n.classList.remove('on'); });
         chip.classList.add('on');
-        var list = viewEl.querySelector('.file-list');
-        if (list) fillCatList(list, files);
+        var list = viewEl.querySelector('.fgrid');
+        if (list) fillFileList(list, files);
       });
       bar.appendChild(chip);
     });
     return bar;
   }
 
-  function fillCatList(list, files) {
+  function fillFileList(list, files) {
     list.innerHTML = '';
     files.forEach(function (f) {
       var access = fileAccess(f);
@@ -907,7 +968,7 @@
       list.appendChild(fileRow(f));
     });
     if (!list.children.length) {
-      list.appendChild(emptyBox('لا توجد ملفات مطابقة هنا.'));
+      list.appendChild(emptyBox('لا توجد ملفات مطابقة هنا.', 'folder'));
     }
   }
 
@@ -954,8 +1015,8 @@
     }
     if (files.length) {
       viewEl.appendChild(el('div', 'section-title', 'الملفات'));
-      var list = el('div', 'file-list');
-      renderBatched(list, files, fileRow, 40);
+      var list = el('div', 'fgrid');
+      renderBatched(list, files, fileRow, 20);
       viewEl.appendChild(list);
       if (files.length > 40) {
         viewEl.appendChild(el('div', 'result-meta',
@@ -993,15 +1054,23 @@
 
   /* ─── filtered results view ─── */
 
-  function renderResults(source) {
+  function renderResults(source, q, mode) {
     viewEl.innerHTML = '';
 
-    var base = source === 'search' ? searchFiles(normalize(state.query)) : state.files;
+    var base = source === 'search' ? searchFiles(normalize(state.query)) : state.files.slice();
+    var head = 'كل الملفات';
+    if (mode === 'recent') {
+      base.sort(function (a, b) { return b.id - a.id; });
+      head = 'أُضيف حديثاً';
+    } else if (mode === 'popular') {
+      base = base.filter(function (f) { return f.k > 0; })
+        .sort(function (a, b) { return b.k - a.k; });
+      head = 'الأكثر استخداماً';
+    } else if (source === 'search') {
+      head = 'نتائج البحث المفلترة';
+    }
     var files = applyFilters(base);
 
-    var head = source === 'search'
-      ? 'نتائج البحث المفلترة'
-      : 'كل الملفات';
     var refresh = el('button', 'link-btn');
     refresh.type = 'button';
     refresh.appendChild(svgIcon('sliders', 14));
@@ -1011,13 +1080,35 @@
 
     viewEl.appendChild(activeChipsRow());
 
+    // Level → Subject: بعد اختيار المستوى، عرض المواد المتاحة داخله مباشرة
+    var ft = state.filters;
+    if (ft.lv && !ft.sb) {
+      var sbSeen = {};
+      files.forEach(function (f) { if (f.sb) sbSeen[f.sb] = true; });
+      var sbs = Object.keys(sbSeen);
+      if (sbs.length > 1) {
+        var srow = el('div', 'chipbar');
+        sbs.forEach(function (sb) {
+          var chip = el('button', 'fchip', sb);
+          chip.type = 'button';
+          chip.addEventListener('click', function () {
+            haptic();
+            state.filters.sb = sb;
+            render();
+          });
+          srow.appendChild(chip);
+        });
+        viewEl.appendChild(srow);
+      }
+    }
+
     if (!files.length) {
-      viewEl.appendChild(emptyBox('لا توجد ملفات مطابقة للفلاتر المختارة.<br>جرّب إزالة بعض الفلاتر.', 'search'));
+      viewEl.appendChild(emptyBox('لا توجد ملفات مطابقة.<br>جرّب إزالة بعض الفلاتر.', 'search'));
       return;
     }
 
-    var list = el('div', 'file-list');
-    renderBatched(list, files, fileRow, 40);
+    var list = el('div', 'fgrid');
+    renderBatched(list, files, fileRow, 20);
     viewEl.appendChild(list);
   }
 
@@ -1150,7 +1241,7 @@
       viewEl.appendChild(emptyBox('مفضلتك فارغة.<br>أضف الملفات عبر زر «أضف للمفضلة» في صفحة الملف.', 'star'));
       return;
     }
-    var list = el('div', 'file-list');
+    var list = el('div', 'fgrid');
     favs.forEach(function (f) { list.appendChild(fileRow(f)); });
     viewEl.appendChild(list);
     viewEl.appendChild(el('div', 'detail-note', 'لإزالة ملف: افتحه ثم اضغط «★ في المفضلة».'));
