@@ -70,6 +70,62 @@
     return node;
   }
 
+  /* ─── unified icon system (inline SVG, stroke style) ─── */
+
+  var ICONS = {
+    home: '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
+    library: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
+    search: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/>',
+    star: '<path d="m12 2 3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14 2 9.27l6.91-1.01z"/>',
+    fileText: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+    file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>',
+    image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>',
+    video: '<rect x="2" y="6" width="14" height="12" rx="2"/><path d="m22 8-6 4 6 4"/>',
+    audio: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+    gem: '<path d="M6 3h12l4 6-10 13L2 9z"/><path d="M2 9h20"/><path d="m12 3-2.5 6L12 22l2.5-13z"/>',
+    check: '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m22 4-10 10.01-3-3"/>',
+    card: '<rect x="1" y="4" width="22" height="16" rx="2"/><path d="M1 10h22"/>',
+    ticket: '<path d="M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v1a2 2 0 0 0 0 6v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1a2 2 0 0 0 0-6z"/>',
+    chat: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8z"/>',
+    clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+    trend: '<path d="m23 6-9.5 9.5-5-5L1 18"/><path d="M17 6h6v6"/>',
+    sparkle: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.9 2.4L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.6z"/>',
+    folder: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+    refresh: '<path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
+    x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+    chevLeft: '<path d="m15 18-6-6 6-6"/>',
+    lock: '<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+    zap: '<path d="M13 2 3 14h9l-1 8 10-12h-9z"/>',
+    send: '<path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/>',
+    bookOpen: '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
+    share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.59 13.51 6.83 3.98m-.01-10.98-6.82 3.98"/>',
+    wifiOff: '<path d="M1 1l22 22"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><path d="M12 20h.01"/>',
+    sliders: '<path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M1 14h6"/><path d="M9 8h6"/><path d="M17 16h6"/>'
+  };
+
+  function svgIcon(name, size) {
+    var sz = size || 20;
+    var holder = document.createElement('span');
+    holder.className = 'svg-ic';
+    holder.setAttribute('aria-hidden', 'true');
+    holder.innerHTML = '<svg viewBox="0 0 24 24" width="' + sz + '" height="' + sz +
+      '" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' +
+      (ICONS[name] || ICONS.file) + '</svg>';
+    return holder;
+  }
+
+  function chevEl(size) {
+    var sp = el('span', 'chev');
+    sp.appendChild(svgIcon('chevLeft', size || 14));
+    return sp;
+  }
+
+  // fill every placeholder icon slot in the static markup (tabs, search bar)
+  Array.prototype.forEach.call(document.querySelectorAll('[data-icon]'), function (n) {
+    var sz = parseInt(n.getAttribute('data-icon-size') || '20', 10);
+    n.appendChild(svgIcon(n.getAttribute('data-icon'), sz));
+  });
+
   /* ─── local data: favorites + recents ───
      Favorites: localStorage is the instant source of truth ({ids, t});
      Telegram CloudStorage mirrors it across the user's devices (no backend).
@@ -261,12 +317,12 @@
   /* ─── file metadata: type / access / level / subject ─── */
 
   var TYPES = [
-    { key: 'pdf', label: 'PDF', icon: '📕' },
-    { key: 'doc', label: 'مستند', icon: '📘' },
-    { key: 'img', label: 'صورة', icon: '🖼️' },
-    { key: 'vid', label: 'فيديو', icon: '🎬' },
-    { key: 'aud', label: 'صوت', icon: '🎵' },
-    { key: 'gen', label: 'ملف', icon: '📄' }
+    { key: 'pdf', label: 'PDF', icon: 'fileText' },
+    { key: 'doc', label: 'مستند', icon: 'file' },
+    { key: 'img', label: 'صورة', icon: 'image' },
+    { key: 'vid', label: 'فيديو', icon: 'video' },
+    { key: 'aud', label: 'صوت', icon: 'audio' },
+    { key: 'gen', label: 'ملف', icon: 'file' }
   ];
 
   function typeOf(f) {
@@ -420,7 +476,7 @@
         .catch(function () { /* user cancelled the share sheet */ });
     } else {
       copyText(botFileUrl(f));
-      showToast('📋 تم نسخ الرابط — شاركه مع أصدقائك');
+      showToast('تم نسخ الرابط — شاركه مع أصدقائك');
     }
   }
 
@@ -479,7 +535,9 @@
   function coverEl(f, small) {
     var t = typeOf(f);
     var cover = el('div', 'cover cover-' + t.key + (small ? ' cover-sm' : ''));
-    cover.appendChild(el('span', 'cover-icon', t.icon));
+    var ci = el('span', 'cover-icon');
+    ci.appendChild(svgIcon(t.icon, 30));
+    cover.appendChild(ci);
     cover.appendChild(el('span', 'cover-type', t.label));
     return cover;
   }
@@ -508,7 +566,7 @@
       var count = fileCount(c.id);
       if (count > 0) meta.appendChild(el('span', 'badge', count + ' ملف'));
     }
-    meta.appendChild(el('span', 'chev', '◀'));
+    meta.appendChild(chevEl());
 
     btn.appendChild(meta);
     btn.addEventListener('click', function () { openCategory(c); });
@@ -529,7 +587,7 @@
     info.appendChild(accessChip(f));
     btn.appendChild(info);
 
-    btn.appendChild(el('div', 'chev', '◀'));
+    btn.appendChild(chevEl());
     btn.addEventListener('click', function () { openFileDetails(f); });
     return btn;
   }
@@ -570,40 +628,13 @@
     return wrap;
   }
 
-  function emptyBox(text) {
+  function emptyBox(text, iconName) {
     var box = el('div', 'empty');
-    box.innerHTML = text;
+    box.appendChild(svgIcon(iconName || 'folder', 46));
+    var t = el('div', 'empty-text');
+    t.innerHTML = text;
+    box.appendChild(t);
     return box;
-  }
-
-  function sectionTitle(text, trailing) {
-    var head = el('div', 'section-title with-action');
-    head.appendChild(el('span', null, text));
-    if (trailing) head.appendChild(trailing);
-    return head;
-  }
-
-  // renders long lists in batches with a "show more" control
-  function renderBatched(container, items, itemBuilder, batch) {
-    batch = batch || 40;
-    var shown = 0;
-    function appendNext() {
-      var slice = items.slice(shown, shown + batch);
-      slice.forEach(function (it) { container.appendChild(itemBuilder(it)); });
-      shown += slice.length;
-      if (shown < items.length) {
-        var more = el('button', 'secondary-btn more-btn',
-          'عرض المزيد (' + (items.length - shown) + ' متبقٍ)');
-        more.type = 'button';
-        more.addEventListener('click', function () {
-          haptic();
-          more.remove();
-          appendNext();
-        });
-        container.appendChild(more);
-      }
-    }
-    appendNext();
   }
 
   /* ─── navigation (tabs + stack) ─── */
@@ -676,10 +707,13 @@
       cont.type = 'button';
       cont.appendChild(coverEl(last, true));
       var cinfo = el('div', 'fcard-info');
-      cinfo.appendChild(el('div', 'continue-label', '⏱ متابعة'));
+      var clabel = el('div', 'continue-label');
+      clabel.appendChild(svgIcon('clock', 13));
+      clabel.appendChild(el('span', null, 'متابعة'));
+      cinfo.appendChild(clabel);
       cinfo.appendChild(el('div', 'fcard-name', last.n));
       cont.appendChild(cinfo);
-      cont.appendChild(el('div', 'chev', '◀'));
+      cont.appendChild(chevEl());
       cont.addEventListener('click', function () {
         if (tooSoon()) return;
         var access = fileAccess(last);
@@ -695,21 +729,21 @@
     }
 
     var recent = recentAddedFiles(8);
-    if (recent.length) viewEl.appendChild(hScrollRow('🆕 أُضيف حديثاً', recent));
+    if (recent.length) viewEl.appendChild(hScrollRow('أُضيف حديثاً', recent));
 
     var popular = popularFiles(8);
-    if (popular.length) viewEl.appendChild(hScrollRow('🔥 الأكثر استخداماً', popular));
+    if (popular.length) viewEl.appendChild(hScrollRow('الأكثر استخداماً', popular));
 
     var reco = recommendedFiles(8);
-    if (reco.length) viewEl.appendChild(hScrollRow('✨ مقترح لك', reco));
+    if (reco.length) viewEl.appendChild(hScrollRow('مقترح لك', reco));
 
-    var levels = chipRow('🎓 حسب المستوى', levelValues(), function (lv) {
+    var levels = chipRow('حسب المستوى', levelValues(), function (lv) {
       state.filters = { lv: lv, sb: '', tp: '', ac: '' };
       push({ type: 'results', source: 'all' });
     });
     if (levels) viewEl.appendChild(levels);
 
-    var subjects = chipRow('📚 حسب المادة', subjectValues(), function (sb) {
+    var subjects = chipRow('حسب المادة', subjectValues(), function (sb) {
       state.filters = { lv: '', sb: sb, tp: '', ac: '' };
       push({ type: 'results', source: 'all' });
     });
@@ -719,19 +753,21 @@
     if (lockedCats.length) {
       var vipCard = el('button', 'vip-banner');
       vipCard.type = 'button';
-      vipCard.appendChild(el('div', 'vip-icon', '💎'));
+      var vg = el('div', 'vip-icon');
+      vg.appendChild(svgIcon('gem', 24));
+      vipCard.appendChild(vg);
       var vinfo = el('div', 'vip-info');
       vinfo.appendChild(el('div', 'vip-title', 'محتوى EscuilaVIP'));
       vinfo.appendChild(el('div', 'vip-sub', lockedCats.length + ' قسماً حصرياً + ملفات مميزة'));
       vipCard.appendChild(vinfo);
-      vipCard.appendChild(el('div', 'chev', '◀'));
+      vipCard.appendChild(chevEl());
       vipCard.addEventListener('click', function () { haptic('light'); push({ type: 'vip' }); });
       viewEl.appendChild(vipCard);
     }
 
     var allBtn = el('button', 'secondary-btn');
     allBtn.type = 'button';
-    allBtn.textContent = '📚 استعرض كل الأقسام';
+    allBtn.textContent = 'استعرض كل الأقسام';
     allBtn.addEventListener('click', function () { switchTab('library', { noFocus: true }); });
     viewEl.appendChild(allBtn);
   }
@@ -755,13 +791,14 @@
 
     var refresh = el('button', 'link-btn');
     refresh.type = 'button';
-    refresh.textContent = '🔄 تحديث';
+    refresh.appendChild(svgIcon('refresh', 13));
+    refresh.appendChild(el('span', null, 'تحديث'));
     refresh.addEventListener('click', function () { haptic(); boot(); });
     viewEl.appendChild(sectionTitle('الأقسام', refresh));
 
     var roots = childrenOf(null);
     if (!roots.length) {
-      viewEl.appendChild(emptyBox('لا توجد أقسام لعرضها.<br>اضغط «🔄 تحديث» أو تأكد من رفع ملفات البيانات.'));
+      viewEl.appendChild(emptyBox('لا توجد أقسام لعرضها.<br>اضغط «تحديث» بالأعلى أو تأكد من رفع ملفات البيانات.', 'folder'));
       return;
     }
     roots.forEach(function (c) { viewEl.appendChild(catCard(c)); });
@@ -818,7 +855,8 @@
     if (files.length) {
       var filterBtn = el('button', 'link-btn');
       filterBtn.type = 'button';
-      filterBtn.textContent = '⚙️ فلترة';
+      filterBtn.appendChild(svgIcon('sliders', 14));
+      filterBtn.appendChild(el('span', null, 'فلترة'));
       filterBtn.addEventListener('click', function () { openFilterSheet(files, 'cat'); });
       viewEl.appendChild(sectionTitle('الملفات (' + files.length + ')', filterBtn));
 
@@ -880,7 +918,7 @@
     var q = normalize(state.query);
 
     if (!q) {
-      viewEl.appendChild(emptyBox('🔍 اكتب في خانة البحث بالأعلى<br>اسم درس أو فرض أو مادة…'));
+      viewEl.appendChild(emptyBox('اكتب في خانة البحث بالأعلى<br>اسم درس أو فرض أو مادة…', 'search'));
       var popular = popularFiles(6);
       if (popular.length) viewEl.appendChild(hScrollRow('🔥 الأكثر استخداماً', popular));
       return;
@@ -906,7 +944,7 @@
     viewEl.appendChild(filterBtn);
 
     if (!files.length && !cats.length) {
-      viewEl.appendChild(emptyBox('لا توجد نتائج مطابقة.<br>جرّب كلمات أقصر أو اسم المادة.'));
+      viewEl.appendChild(emptyBox('لا توجد نتائج مطابقة.<br>جرّب كلمات أقصر أو اسم المادة.', 'search'));
       return;
     }
 
@@ -921,7 +959,7 @@
       viewEl.appendChild(list);
       if (files.length > 40) {
         viewEl.appendChild(el('div', 'result-meta',
-          '✂️ تُعرض النتائج على دفعات — استخدم الفلاتر لتضييقها.'));
+          'تُعرض النتائج على دفعات — استخدم الفلاتر لتضييقها.'));
       }
     }
   }
@@ -966,14 +1004,15 @@
       : 'كل الملفات';
     var refresh = el('button', 'link-btn');
     refresh.type = 'button';
-    refresh.textContent = '⚙️ فلترة';
+    refresh.appendChild(svgIcon('sliders', 14));
+    refresh.appendChild(el('span', null, 'فلترة'));
     refresh.addEventListener('click', function () { openFilterSheet(base, source, state.query); });
     viewEl.appendChild(sectionTitle(head + ' (' + files.length + ')', refresh));
 
     viewEl.appendChild(activeChipsRow());
 
     if (!files.length) {
-      viewEl.appendChild(emptyBox('لا توجد ملفات مطابقة للفلاتر المختارة.<br>جرّب إزالة بعض الفلاتر.'));
+      viewEl.appendChild(emptyBox('لا توجد ملفات مطابقة للفلاتر المختارة.<br>جرّب إزالة بعض الفلاتر.', 'search'));
       return;
     }
 
@@ -998,8 +1037,12 @@
 
     var sheet = el('div', 'sheet');
     var head = el('div', 'sheet-head');
-    head.appendChild(el('div', 'sheet-title', '⚙️ تصفية'));
-    var closeBtn = el('button', 'sheet-close', '✕');
+    var st = el('div', 'sheet-title');
+    st.appendChild(svgIcon('sliders', 16));
+    st.appendChild(el('span', null, 'تصفية'));
+    head.appendChild(st);
+    var closeBtn = el('button', 'sheet-close');
+    closeBtn.appendChild(svgIcon('x', 13));
     closeBtn.type = 'button';
     closeBtn.setAttribute('aria-label', 'إغلاق');
     head.appendChild(closeBtn);
@@ -1101,10 +1144,10 @@
     viewEl.innerHTML = '';
 
     var favs = filesByIds(favIds());
-    viewEl.appendChild(sectionTitle('⭐ المفضلة (' + favs.length + ')'));
+    viewEl.appendChild(sectionTitle('المفضلة (' + favs.length + ')'));
 
     if (!favs.length) {
-      viewEl.appendChild(emptyBox('مفضلتك فارغة.<br>أضف الملفات عبر زر «☆ أضف للمفضلة» في صفحة الملف.'));
+      viewEl.appendChild(emptyBox('مفضلتك فارغة.<br>أضف الملفات عبر زر «أضف للمفضلة» في صفحة الملف.', 'star'));
       return;
     }
     var list = el('div', 'file-list');
@@ -1163,7 +1206,8 @@
 
     var shareB = el('button', 'secondary-btn');
     shareB.type = 'button';
-    shareB.textContent = '📤 مشاركة';
+    shareB.appendChild(svgIcon('share', 15));
+    shareB.appendChild(el('span', null, 'مشاركة'));
     shareB.addEventListener('click', function () { shareFile(f); });
     row.appendChild(shareB);
 
@@ -1197,14 +1241,16 @@
       // telegram pages can't be framed — hand straight to the app
       var tgOpen = el('button', 'primary-btn');
       tgOpen.type = 'button';
-      tgOpen.textContent = '📱 فتح في تيليجرام';
+      tgOpen.appendChild(svgIcon('send', 17));
+      tgOpen.appendChild(el('span', null, 'فتح في تيليجرام'));
       tgOpen.addEventListener('click', function () { openTelegramUrl(f.u, true); });
       box.appendChild(tgOpen);
       box.appendChild(favShareRow(f));
     } else if (access === 'free') {
       var read = el('button', 'primary-btn');
       read.type = 'button';
-      read.textContent = '👁️ قراءة داخل التطبيق';
+      read.appendChild(svgIcon('bookOpen', 17));
+      read.appendChild(el('span', null, 'قراءة داخل التطبيق'));
       read.addEventListener('click', function () {
         haptic('light');
         push({ type: 'viewer', file: f });
@@ -1217,14 +1263,16 @@
       // no duplicate "فتح في المتصفح" entry points
       var inBot = el('button', 'secondary-btn');
       inBot.type = 'button';
-      inBot.textContent = '🤖 عبر البوت';
+      inBot.appendChild(svgIcon('chat', 16));
+      inBot.appendChild(el('span', null, 'عبر البوت'));
       inBot.addEventListener('click', function () { openInBot(f); });
       box.appendChild(inBot);
     } else if (access === 'vip') {
       // same journey as the bot: show the VIP subscribe screen, bot enforces
       var how = el('button', 'primary-btn');
       how.type = 'button';
-      how.textContent = '💎 كيف أحصل عليه؟';
+      how.appendChild(svgIcon('gem', 17));
+      how.appendChild(el('span', null, 'كيف أحصل عليه؟'));
       how.addEventListener('click', function () {
         haptic('light');
         push({ type: 'vip' });
@@ -1233,7 +1281,8 @@
 
       var open = el('button', 'secondary-btn');
       open.type = 'button';
-      open.textContent = '🤖 طلب الملف من البوت';
+      open.appendChild(svgIcon('send', 17));
+      open.appendChild(el('span', null, 'طلب الملف من البوت'));
       open.addEventListener('click', function () { openInBot(f); });
       box.appendChild(open);
 
@@ -1244,7 +1293,8 @@
     } else {
       var botBtn = el('button', 'primary-btn');
       botBtn.type = 'button';
-      botBtn.textContent = '🤖 استلام الملف من البوت';
+      botBtn.appendChild(svgIcon('send', 17));
+      botBtn.appendChild(el('span', null, 'استلام الملف من البوت'));
       botBtn.addEventListener('click', function () { openInBot(f); });
       box.appendChild(botBtn);
 
@@ -1262,64 +1312,80 @@
   function renderVip() {
     viewEl.innerHTML = '';
 
-    var box = el('div', 'detail-box vip-box');
-    box.appendChild(el('div', 'detail-icon', '💎'));
-    box.appendChild(el('div', 'detail-name', 'Escuila VIP'));
-    box.appendChild(el('div', 'detail-type', 'اشتراك واحد — وصول كامل'));
+    var hero = el('div', 'vip-hero');
+    var gem = el('div', 'vip-gem');
+    gem.appendChild(svgIcon('gem', 30));
+    hero.appendChild(gem);
+    hero.appendChild(el('div', 'detail-name', 'Escuila VIP'));
+    hero.appendChild(el('div', 'vip-tag', 'وصول كامل لكل المحتوى الحصري'));
+    viewEl.appendChild(hero);
 
     var feats = el('div', 'vip-feats');
     ['ملفات حصرية', 'تصحيحات منظمة', 'ملفات منسقة جاهزة', 'تنبيهات بالجديد', 'أولوية الدعم']
       .forEach(function (t) {
-        var row = el('div', 'vip-feat', '✅ ' + t);
+        var row = el('div', 'vip-feat');
+        row.appendChild(svgIcon('check', 18));
+        row.appendChild(el('span', null, t));
         feats.appendChild(row);
       });
-    box.appendChild(feats);
+    viewEl.appendChild(feats);
 
-    var prices = el('div', 'price-row');
-    if (state.starsPrice > 0) {
-      prices.appendChild(el('div', 'price-card',
-        '⭐ النجوم\n' + state.starsPrice + ' Stars'));
-    }
-    if (state.madPrice > 0) {
-      prices.appendChild(el('div', 'price-card',
-        '💵 الدرهم\n' + state.madPrice + ' درهم'));
-    }
     if (state.starsPrice > 0 || state.madPrice > 0) {
-      box.appendChild(prices);
-      box.appendChild(el('div', 'detail-note',
-        'الأسعار تُقرأ من نظام البوت مباشرة — أي تغيير من لوحة الإدارة يظهر هنا تلقائياً.'));
+      var prices = el('div', 'price-row');
+      if (state.starsPrice > 0) {
+        var pc = el('div', 'price-card price-star');
+        var pl1 = el('div', 'price-label');
+        pl1.appendChild(svgIcon('star', 13));
+        pl1.appendChild(el('span', null, 'نجوم تيليجرام'));
+        pc.appendChild(pl1);
+        pc.appendChild(el('div', 'price-value', state.starsPrice));
+        pc.appendChild(el('div', 'price-note', 'فوري وتلقائي'));
+        prices.appendChild(pc);
+      }
+      if (state.madPrice > 0) {
+        var pm = el('div', 'price-card');
+        var pl2 = el('div', 'price-label');
+        pl2.appendChild(svgIcon('card', 13));
+        pl2.appendChild(el('span', null, 'دفع يدوي'));
+        pm.appendChild(pl2);
+        pm.appendChild(el('div', 'price-value', state.madPrice + ' د.م'));
+        pm.appendChild(el('div', 'price-note', 'CCP · PayPal'));
+        prices.appendChild(pm);
+      }
+      viewEl.appendChild(prices);
     }
 
-    var stars = el('button', 'primary-btn');
-    stars.type = 'button';
-    stars.textContent = state.starsPrice > 0
-      ? '⭐ الدفع بالنجوم (' + state.starsPrice + ' ⭐)'
-      : '⭐ الدفع بالنجوم — عبر البوت';
-    stars.addEventListener('click', function () { openBotChat(''); });
-    box.appendChild(stars);
+    var cta = el('button', 'primary-btn vip-cta');
+    cta.type = 'button';
+    cta.appendChild(svgIcon('zap', 17));
+    cta.appendChild(el('span', null, state.starsPrice > 0
+      ? 'اشترك الآن — ' + state.starsPrice + ' ⭐'
+      : 'اشترك بالنجوم عبر البوت'));
+    cta.addEventListener('click', function () { openBotChat(''); });
+    viewEl.appendChild(cta);
+    viewEl.appendChild(el('div', 'vip-cta-note',
+      'التفعيل فوري تلقائياً بعد الدفع داخل تيليجرام'));
 
-    var manual = el('button', 'secondary-btn');
-    manual.type = 'button';
-    manual.textContent = '💵 CCP / PayPal — طلب يدوي';
-    manual.addEventListener('click', function () { openBotChat('vip_request'); });
-    box.appendChild(manual);
+    var opts = el('div', 'vip-opts');
+    function vipOpt(icon, label, fn) {
+      var b = el('button', 'vip-opt');
+      b.type = 'button';
+      b.appendChild(svgIcon(icon, 18));
+      b.appendChild(el('span', null, label));
+      b.appendChild(svgIcon('chevLeft', 15));
+      b.addEventListener('click', fn);
+      return b;
+    }
+    opts.appendChild(vipOpt('card', 'CCP / PayPal — طلب يدوي', function () { openBotChat('vip_request'); }));
+    opts.appendChild(vipOpt('ticket', 'لدي كود اشتراك', function () { openBotChat(''); }));
+    opts.appendChild(vipOpt('chat', 'تواصل مع الإدارة', function () { openBotChat('vip_request'); }));
+    viewEl.appendChild(opts);
 
-    var code = el('button', 'secondary-btn');
-    code.type = 'button';
-    code.textContent = '🎟 لدي كود اشتراك';
-    code.addEventListener('click', function () { openBotChat(''); });
-    box.appendChild(code);
-
-    var contact = el('button', 'secondary-btn');
-    contact.type = 'button';
-    contact.textContent = '📞 تواصل مع الإدارة';
-    contact.addEventListener('click', function () { openBotChat('vip_request'); });
-    box.appendChild(contact);
-
-    box.appendChild(el('div', 'detail-note',
-      'الاشتراك والتحقق وتسليم المحتوى تتم داخل بوت Escuila — التطبيق والبوت نظام واحد.'));
-
-    viewEl.appendChild(box);
+    var note = el('div', 'vip-note');
+    note.appendChild(svgIcon('lock', 13));
+    note.appendChild(el('span', null,
+      'الاشتراك والتحقق والتسليم تتم داخل بوت Escuila — التطبيق والبوت نظام واحد'));
+    viewEl.appendChild(note);
   }
 
   /* ─── locked category ─── */
@@ -1328,14 +1394,17 @@
     viewEl.innerHTML = '';
 
     var box = el('div', 'detail-box');
-    box.appendChild(el('div', 'detail-icon', '🔒'));
+    var lockRing = el('div', 'lock-ring');
+    lockRing.appendChild(svgIcon('lock', 26));
+    box.appendChild(lockRing);
     box.appendChild(el('div', 'detail-name', c.name));
     box.appendChild(el('div', 'detail-note',
       'هذا القسم حصري لأعضاء EscuilaVIP.\nالاشتراك يتم عبر نفس نظام البوت.'));
 
     var open = el('button', 'primary-btn');
     open.type = 'button';
-    open.textContent = '💎 اشتراك EscuilaVIP';
+    open.appendChild(svgIcon('gem', 17));
+    open.appendChild(el('span', null, 'اشتراك EscuilaVIP'));
     open.addEventListener('click', function () { push({ type: 'vip' }); });
     box.appendChild(open);
 
@@ -1405,7 +1474,8 @@
       // fallback: no native MainButton -> a single in-flow button
       var inBrowser = el('button', 'primary-btn');
       inBrowser.type = 'button';
-      inBrowser.textContent = '🌐 فتح في المتصفح';
+      inBrowser.appendChild(svgIcon('share', 16));
+      inBrowser.appendChild(el('span', null, 'فتح في المتصفح'));
       inBrowser.addEventListener('click', openExternal);
       actions.appendChild(inBrowser);
     }
@@ -1420,7 +1490,7 @@
     viewEl.appendChild(wrap);
 
     // native MainButton = the one "open in browser" affordance in Telegram
-    setMainButton(hasMain ? '🌐 فتح في المتصفح' : null, hasMain ? openExternal : null);
+    setMainButton(hasMain ? 'فتح في المتصفح' : null, hasMain ? openExternal : null);
 
     // slow-source nudge: after 6s point the user at the fallback buttons
     setTimeout(function () {
@@ -1521,10 +1591,11 @@
 
   /* ─── boot ─── */
 
-  function fail(msg) {
+  function fail(msg, iconName) {
     viewEl.innerHTML = '';
     var box = el('div', 'error-box');
-    box.appendChild(el('div', null, '⚠️ ' + msg));
+    box.appendChild(svgIcon(iconName || 'refresh', 40));
+    box.appendChild(el('div', 'error-msg', msg));
     var retry = el('button', null, 'إعادة المحاولة');
     retry.type = 'button';
     retry.addEventListener('click', boot);
@@ -1608,7 +1679,8 @@
       .catch(function () {
         fail(navigator.onLine === false
           ? 'لا يوجد اتصال بالإنترنت — تحقق من الشبكة ثم أعد المحاولة.'
-          : 'حدث خطأ أثناء تحميل البيانات');
+          : 'حدث خطأ أثناء تحميل البيانات',
+          navigator.onLine === false ? 'wifiOff' : 'refresh');
       });
   }
 
