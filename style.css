@@ -1247,3 +1247,77 @@ body.dark .vip-gem { color: #fbbf24; }
 
 .pdf-sm .pdf-lines { inset-inline: 10% 15%; top: 15%; bottom: 29%; }
 .pdf-sm .pdf-tab { font-size: 8.5px; padding: 2px 8px 2px 7px; }
+
+/* ═════════ v9 — native Telegram app feel ═════════ */
+
+/* وضع القراءة الغامر: العارض يملأ الشاشة بلا شريط موقع */
+body.immersive #topbar,
+body.immersive #bottombar { display: none; }
+
+body.immersive #view {
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
+}
+
+body.immersive .viewer-wrap {
+  height: calc(100dvh - env(safe-area-inset-bottom, 0px) - 10px);
+}
+
+/* الكيبورد مفتوح: الشريط السفلي يختفي بدل أن يظهر فوقه */
+body.kb-open #bottombar { display: none; }
+
+/* انتقالات شاشات اتجاهية خفيفة */
+#view > * { animation: none; }
+
+#view.nav-fwd { animation: slide-fwd 170ms var(--ease); }
+#view.nav-back { animation: slide-back 170ms var(--ease); }
+
+@keyframes slide-fwd {
+  from { opacity: 0.35; transform: translateX(-14px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes slide-back {
+  from { opacity: 0.35; transform: translateX(14px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* إزالة سلوك الموقع: لا أشرطة تمرير مرئية، لا سحب مطاطي، لا تحديد نصوص */
+#view {
+  scrollbar-width: none;
+  overscroll-behavior: contain;
+}
+
+#view::-webkit-scrollbar { display: none; }
+
+#topbar, #bottombar, .tab, .fchip, .chip, .section-title,
+.fcard-name, .gcard-name, .mini-name, .stat-line {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* خط البحث 16px يمنع تكبير iOS التلقائي عند التركيز */
+#search { font-size: 16px; }
+
+/* شريط سفلي أخف: خلفية شبه شفافة + تشويش زجاجي */
+#bottombar {
+  background: var(--tg-theme-secondary-bg-color, rgba(242, 242, 247, 0.92));
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* سطر الإحصاء كحبة مركّزة بدل سطر موقع */
+.stat-line {
+  font-size: 12px;
+  background: var(--secondary-bg);
+  border-radius: 999px;
+  padding: 6px 14px;
+  width: fit-content;
+  margin: 0 auto 14px;
+}
+
+/* أهداف لمس مريحة للشرائح */
+.fchip { padding: 8px 15px; min-height: 34px; }
+
+@media (prefers-reduced-motion: reduce) {
+  #view.nav-fwd, #view.nav-back { animation: none !important; }
+}

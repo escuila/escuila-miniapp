@@ -166,6 +166,7 @@
     var i = fav.ids.indexOf(id);
     if (i === -1) {
       fav.ids.unshift(id);
+      try { if (tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred) tg.HapticFeedback.notificationOccurred('success'); } catch (e) { /* noop */ }
       showToast('⭐ أُضيف إلى المفضلة');
     } else {
       fav.ids.splice(i, 1);
@@ -740,12 +741,25 @@
 
     setMainButton(null);
 
+    // وضع القراءة: العارض يملأ الشاشة بلا أشرطة تنقل (إحساس تطبيق PDF)
+    document.body.classList.toggle('immersive', top.type === 'viewer');
+
+    // حالة الكيبورد ذاتية الإصلاح: أي تنقل خارج البحث يمسحها
+    if (top.type !== 'search') document.body.classList.remove('kb-open');
+
     if (tg && tg.BackButton) {
       if (depth > 1) tg.BackButton.show();
       else tg.BackButton.hide();
     }
 
     viewEl.scrollTop = 0;
+
+    // انزلاق اتجاهي خفيف: دفع للأمام / رجوع للخلف
+    var prevDepth = state._prevDepth || 0;
+    state._prevDepth = depth;
+    viewEl.classList.remove('nav-fwd', 'nav-back');
+    void viewEl.offsetWidth;
+    viewEl.classList.add(depth > prevDepth ? 'nav-fwd' : 'nav-back');
 
     if (top.type === 'home') renderHome();
     else if (top.type === 'library') renderLibrary();
@@ -757,6 +771,9 @@
     else if (top.type === 'vip') renderVip();
     else if (top.type === 'results') renderResults(top.source, top.q, top.mode);
     else if (top.type === 'locked') renderLockedInfo(top.cat);
+
+    // الكيبورد يتبقى مفتوحاً فقط داخل شاشة البحث
+    if (top.type !== 'search' && document.activeElement === searchEl) searchEl.blur();
   }
 
   function push(view) {
@@ -1517,6 +1534,11 @@
     opts.appendChild(vipOpt('chat', 'تواصل مع الإدارة', function () { openBotChat('vip_request'); }));
     viewEl.appendChild(opts);
 
+    // زر تيليجرام الأصلي = الدعوة الأساسية أثناء وجود المستخدم في شاشة VIP
+    setMainButton(state.starsPrice > 0
+      ? 'اشترك الآن — ' + state.starsPrice + ' ⭐'
+      : 'الاشتراك عبر البوت', function () { openBotChat(''); });
+
     var note = el('div', 'vip-note');
     note.appendChild(svgIcon('lock', 13));
     note.appendChild(el('span', null,
@@ -1681,6 +1703,13 @@
 
   /* ─── events ─── */
 
+  searchEl.addEventListener('focus', function () {
+    document.body.classList.add('kb-open');
+  });
+  searchEl.addEventListener('blur', function () {
+    document.body.classList.remove('kb-open');
+  });
+
   searchEl.addEventListener('input', function () {
     clearEl.hidden = !searchEl.value;
     clearTimeout(state.searchTimer);
@@ -1746,6 +1775,9 @@
 
   function applyColorScheme() {
     try {
+      if (tg && tg.setHeaderColor) tg.setHeaderColor('secondary_bg_color');
+      if (tg && tg.setBackgroundColor) tg.setBackgroundColor('bg_color');
+      if (tg && tg.disableVerticalSwipes) tg.disableVerticalSwipes();
       document.body.classList.toggle('dark', !!(tg && tg.colorScheme === 'dark'));
       if (tg && tg.onEvent) {
         tg.onEvent('themeChanged', function () {
