@@ -1145,3 +1145,105 @@ body.dark .vip-gem { color: #fbbf24; }
 
 /* شريط شرائح المستويات داخل المكتبة */
 #view > .chipbar { margin: 2px 0 14px; }
+
+/* ═════════ v8 — نظام المصغرات الاحترافي ═════════ */
+
+/* الحاوية ثابتة الأبعاد دائماً */
+.cover { background: var(--secondary-bg); position: relative; }
+
+/* العلامة المائية تخص الأغلفة المصممة فقط (لا تُفرض فوق الصور) */
+.cover::after { content: none; }
+.cover-fill { position: absolute; inset: 0; }
+.cover-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: url(assets/logo.png) center / 62% no-repeat;
+  opacity: 0.13;
+}
+.cover-fill .cover-icon {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.95);
+}
+
+/* الصورة داخل الحاوية الثابتة — لا تمتد ولا تشوه */
+.cover-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* وميض تحميل خفيف حتى تظهر الصورة */
+.cover.thumb-img:not(.img-ok) {
+  background: linear-gradient(100deg,
+    var(--secondary-bg) 30%,
+    rgba(127, 127, 127, 0.14) 50%,
+    var(--secondary-bg) 70%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+.cover-type {
+  z-index: 2;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+
+/* ── مصغرة PDF: صفحة واقعية بزاوية مطوية ── */
+.cover.pdf-box { background: linear-gradient(165deg, #64748b, #334155); }
+
+.pdf-page {
+  position: absolute;
+  top: 7%;
+  bottom: 7%;
+  left: 15%;
+  right: 15%;
+  background: #fcfcfc;
+  border-radius: 5px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.35);
+}
+
+.pdf-page::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  inset-inline-end: 0;
+  border-style: solid;
+  border-width: 0 15px 15px 0;
+  border-color: transparent #cfcfcf transparent transparent;
+}
+
+.pdf-lines {
+  position: absolute;
+  inset-inline: 13% 22%;
+  top: 17%;
+  bottom: 27%;
+  background: repeating-linear-gradient(180deg,
+    #d9d9d9 0 4px,
+    transparent 4px 12px);
+  border-radius: 2px;
+  opacity: 0.85;
+}
+
+.pdf-tab {
+  position: absolute;
+  bottom: 9%;
+  inset-inline-start: 0;
+  background: #c0242c;
+  color: #fff;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  padding: 3px 10px 3px 8px;
+  border-radius: 0 4px 4px 0;
+}
+
+.pdf-sm .pdf-lines { inset-inline: 10% 15%; top: 15%; bottom: 29%; }
+.pdf-sm .pdf-tab { font-size: 8.5px; padding: 2px 8px 2px 7px; }

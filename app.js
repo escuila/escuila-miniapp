@@ -532,14 +532,59 @@
 
   /* ─── building blocks (always DOM nodes — never stringified) ─── */
 
-  function coverEl(f, small) {
-    var t = typeOf(f);
-    var cover = el('div', 'cover cover-' + t.key + (small ? ' cover-sm' : ''));
+  /* غلاف هوية Escuila (تدرج النوع + أيقونة + علامة مائية) */
+  function brandCoverFill(type, small) {
+    var fill = el('div', 'cover-fill cover-' + type.key);
     var ci = el('span', 'cover-icon');
-    ci.appendChild(svgIcon(t.icon, 30));
-    cover.appendChild(ci);
-    cover.appendChild(el('span', 'cover-type', t.label));
-    return cover;
+    ci.appendChild(svgIcon(type.icon, small ? 17 : 25));
+    fill.appendChild(ci);
+    return fill;
+  }
+
+  /* مصغرة PDF احترافية: صفحة بزاوية مطوية + أسطر محتوى + تبويب أحمر */
+  function pdfThumb(small) {
+    var pg = el('div', 'pdf-page' + (small ? ' pdf-sm' : ''));
+    pg.appendChild(el('div', 'pdf-lines'));
+    pg.appendChild(el('div', 'pdf-tab', 'PDF'));
+    return pg;
+  }
+
+  /* سلسلة المصغرات: مصغرة مخزنة → تصميم PDF → هوية Escuila
+     (onerror يبدّل تلقائياً دون إظهار صورة مكسورة) */
+  function coverEl(f, small) {
+    var type = typeOf(f);
+    var box = el('div', 'cover' + (small ? ' cover-sm' : ''));
+
+    function mountDesigned() {
+      if (type.key === 'pdf') {
+        box.classList.add('pdf-box');
+        box.appendChild(pdfThumb(small));
+      } else {
+        box.appendChild(brandCoverFill(type, small));
+        box.appendChild(el('span', 'cover-type', type.label));
+      }
+    }
+
+    if (f.t) {
+      box.classList.add('thumb-img');
+      var img = document.createElement('img');
+      img.className = 'cover-img';
+      img.alt = '';
+      img.loading = 'lazy';
+      img.decoding = 'async';
+      img.referrerPolicy = 'no-referrer';
+      img.onload = function () { box.classList.add('img-ok'); };
+      img.onerror = function () {
+        img.remove();
+        mountDesigned();
+      };
+      img.src = f.t;
+      box.appendChild(img);
+      box.appendChild(el('span', 'cover-type', type.label));
+      return box;
+    }
+    mountDesigned();
+    return box;
   }
 
   function accessChip(f) {
