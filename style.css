@@ -1418,3 +1418,9 @@ body.dark .account-card .icon { color: #fbbf24; }
 
 #bottombar .tab[data-tab="admin"] .ticon { color: #d97706; }
 body.dark #bottombar .tab[data-tab="admin"] .ticon { color: #fbbf24; }
+
+/* تبويب الإدارة: hidden attribute يجب أن يغلب قواعد display */
+#bottombar .tab[hidden] { display: none !important; }
+
+/* تبويب الإدارة: hidden attribute يجب أن يغلب قواعد display */
+#bottombar .tab[hidden] { display: none !important; }
