@@ -30,7 +30,10 @@
     searchTimer: null,
     catFilter: 'all',
     filters: { lv: '', sb: '', tp: '', ac: '' },
-    startParamDone: false
+    startParamDone: false,
+    api: '',
+    me: null,
+    online: false
   };
 
   var viewEl = document.getElementById('view');
@@ -40,7 +43,7 @@
   var sheetBackdrop = document.getElementById('sheet-backdrop');
   var tabButtons = Array.prototype.slice.call(document.querySelectorAll('#bottombar .tab'));
 
-  var TAB_ROOTS = { home: 'home', library: 'library', search: 'search', favs: 'favs' };
+  var TAB_ROOTS = { home: 'home', library: 'library', search: 'search', favs: 'favs', admin: 'admin' };
 
   /* ─── ui helpers ─── */
 
@@ -100,7 +103,11 @@
     bookOpen: '<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>',
     share: '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.59 13.51 6.83 3.98m-.01-10.98-6.82 3.98"/>',
     wifiOff: '<path d="M1 1l22 22"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><path d="M12 20h.01"/>',
-    sliders: '<path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M1 14h6"/><path d="M9 8h6"/><path d="M17 16h6"/>'
+    sliders: '<path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M1 14h6"/><path d="M9 8h6"/><path d="M17 16h6"/>',
+    shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+    users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    logs: '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>'
   };
 
   function svgIcon(name, size) {
@@ -688,6 +695,52 @@
     return box;
   }
 
+  /* ─── Mini API layer — نفس قاعدة بيانات البوت (وضع متصل/ثابت) ─── */
+
+  function apiFetch(path, opts) {
+    opts = opts || {};
+    opts.headers = opts.headers || {};
+    opts.headers['X-Telegram-InitData'] = (tg && tg.initData) || '';
+    if (opts.body !== undefined && typeof opts.body !== 'string') {
+      opts.body = JSON.stringify(opts.body);
+      opts.headers['Content-Type'] = 'application/json';
+    }
+    return fetch(state.api + path, opts).then(function (r) {
+      return r.json().then(function (j) {
+        if (!r.ok || j.ok === false) {
+          var err = new Error((j && j.error) || 'تعذر تنفيذ العملية');
+          err.code = j && j.code;
+          throw err;
+        }
+        return j;
+      });
+    });
+  }
+
+  function initSession(attempt) {
+    if (!state.api || !tg || !tg.initData) return; // الوضع الثابت — بلا جلسة
+    if (attempt === undefined) attempt = 1;
+    apiFetch('/api/session', { method: 'POST' }).then(function (r) {
+      state.me = r.user || null;
+      state.online = !!state.me;
+      onSessionReady();
+    }).catch(function () {
+      // الخادم قد يكون مشغولاً لحظياً (نفق الهاتف) — 3 محاولات بتراجع زمني
+      if (attempt < 3) {
+        setTimeout(function () { initSession(attempt + 1); }, 1500 * attempt);
+      } else {
+        state.online = false; // يبقى الوضع الثابت كما هو كلياً
+      }
+    });
+  }
+
+  function onSessionReady() {
+    var adminTab = document.querySelector('#bottombar .tab[data-tab="admin"]');
+    if (adminTab) adminTab.hidden = !state.me.is_admin;
+    if (state.me.is_admin) showToast('وضع المدير مفعّل');
+    if (state.stack[state.stack.length - 1].type === 'home') render();
+  }
+
   function sectionTitle(text, trailing) {
     var head = el('div', 'section-title with-action');
     head.appendChild(el('span', null, text));
@@ -727,6 +780,7 @@
   }
 
   function switchTab(tab, opts) {
+    if (tab === 'admin' && !(state.me && state.me.is_admin)) return;
     haptic();
     state.tab = tab;
     state.stack = [{ type: TAB_ROOTS[tab] }];
@@ -765,6 +819,10 @@
     else if (top.type === 'library') renderLibrary();
     else if (top.type === 'search') renderSearch();
     else if (top.type === 'favs') renderFavs();
+    else if (top.type === 'admin') renderAdmin();
+    else if (top.type === 'adminUsers') renderAdminUsers();
+    else if (top.type === 'adminUser') renderAdminUser(top.user);
+    else if (top.type === 'adminLogs') renderAdminLogs();
     else if (top.type === 'cat') renderCat(top.id);
     else if (top.type === 'file') renderFileDetails(top.file);
     else if (top.type === 'viewer') renderViewer(top.file);
@@ -796,6 +854,28 @@
     var freeCount = state.files.filter(function (f) { return !!f.u; }).length;
     viewEl.appendChild(el('div', 'stat-line',
       state.cats.length + ' قسم · ' + state.files.length + ' ملف · ' + freeCount + ' للقراءة المباشرة'));
+
+    if (state.online && state.me) {
+      var me = state.me;
+      var acc = el('button', 'card account-card');
+      acc.type = 'button';
+      var aic = el('div', 'icon');
+      aic.appendChild(svgIcon(me.is_admin ? 'shield' : (me.vip ? 'star' : 'user'), 20));
+      acc.appendChild(aic);
+      var ainfo = el('div', 'fcard-info');
+      ainfo.appendChild(el('div', 'fcard-name', me.is_admin ? 'وضع المدير' : (me.name || 'حسابي')));
+      ainfo.appendChild(el('div', 'fcard-meta', me.vip
+        ? '⭐ مشترك نشط — ينتهي بعد ' + me.vip_days_left + ' يوم · ' + me.points + ' نقطة'
+        : 'زائر · ' + me.points + ' نقطة — انضم لـ EscuilaVIP'));
+      acc.appendChild(ainfo);
+      acc.appendChild(chevEl());
+      acc.addEventListener('click', function () {
+        haptic('light');
+        if (me.is_admin) switchTab('admin', { noFocus: true });
+        else push({ type: 'vip' });
+      });
+      viewEl.appendChild(acc);
+    }
 
     // فئات سريعة (قيم حقيقية)
     var levels = chipRow('حسب المستوى', levelValues(), function (lv) {
@@ -1432,6 +1512,34 @@
       });
       box.appendChild(how);
 
+      // مشترك/أدمن موثق → الخادم يتحقق من الصلاحية ويقرر وضع الفتح
+      var canLive = state.online && state.me && (state.me.vip || state.me.is_admin);
+      if (canLive) {
+        var openLive = el('button', 'primary-btn');
+        openLive.type = 'button';
+        openLive.appendChild(svgIcon('bookOpen', 17));
+        openLive.appendChild(el('span', null, '👁️ قراءة داخل التطبيق'));
+        openLive.addEventListener('click', function () {
+          haptic('light');
+          openLive.disabled = true;
+          apiFetch('/api/file-access/' + f.id).then(function (r) {
+            openLive.disabled = false;
+            if (r.mode === 'web' && r.url) {
+              recordRecent(f.id);
+              push({ type: 'viewer', file: { id: f.id, n: f.n, u: r.url, c: f.c } });
+            } else {
+              showToast(r.reason || 'يُسلَّم هذا الملف عبر البوت');
+              openInBot(f);
+            }
+          }).catch(function (e) {
+            openLive.disabled = false;
+            if (e.code === 'vip_required') push({ type: 'vip' });
+            else showToast(e.message || 'تعذر فتح الملف حالياً، حاول مجدداً');
+          });
+        });
+        box.appendChild(openLive);
+      }
+
       var open = el('button', 'secondary-btn');
       open.type = 'button';
       open.appendChild(svgIcon('send', 17));
@@ -1441,8 +1549,9 @@
 
       box.appendChild(favShareRow(f));
 
-      box.appendChild(el('div', 'detail-note',
-        'هذا الملف حصري لمشتركي EscuilaVIP. الاشتراك والتحقق والتسليم تتم داخل بوت Escuila — نفس النظام.'));
+      box.appendChild(el('div', 'detail-note', canLive
+        ? '✓ تم التعرف على اشتراكك النشط — الفتح بتحقق من خادم ESCUILA مباشرة.'
+        : 'هذا الملف حصري لمشتركي EscuilaVIP. الاشتراك والتحقق والتسليم تتم داخل بوت Escuila — نفس النظام.'));
     } else {
       var botBtn = el('button', 'primary-btn');
       botBtn.type = 'button';
@@ -1470,7 +1579,14 @@
     gem.appendChild(svgIcon('gem', 30));
     hero.appendChild(gem);
     hero.appendChild(el('div', 'detail-name', 'Escuila VIP'));
-    hero.appendChild(el('div', 'vip-tag', 'وصول كامل لكل المحتوى الحصري'));
+    var me = state.me;
+    if (state.online && me && me.vip) {
+      hero.appendChild(el('div', 'vip-live-pill',
+        '✓ اشتراكك نشط — متبقٍ ' + me.vip_days_left + ' يوم (حتى ' + me.vip_expires + ')'));
+      hero.appendChild(el('div', 'vip-tag', 'التجديد يمدد مدتك الحالية تلقائياً'));
+    } else {
+      hero.appendChild(el('div', 'vip-tag', 'وصول كامل لكل المحتوى الحصري'));
+    }
     viewEl.appendChild(hero);
 
     var feats = el('div', 'vip-feats');
@@ -1511,8 +1627,10 @@
     var cta = el('button', 'primary-btn vip-cta');
     cta.type = 'button';
     cta.appendChild(svgIcon('zap', 17));
+    var isSubscriber = state.online && state.me && state.me.vip;
     cta.appendChild(el('span', null, state.starsPrice > 0
-      ? 'اشترك الآن — ' + state.starsPrice + ' ⭐'
+      ? (isSubscriber ? 'تجديد الاشتراك — ' + state.starsPrice + ' ⭐'
+                      : 'اشترك الآن — ' + state.starsPrice + ' ⭐')
       : 'اشترك بالنجوم عبر البوت'));
     cta.addEventListener('click', function () { openBotChat(''); });
     viewEl.appendChild(cta);
@@ -1544,6 +1662,222 @@
     note.appendChild(el('span', null,
       'الاشتراك والتحقق والتسليم تتم داخل بوت Escuila — التطبيق والبوت نظام واحد'));
     viewEl.appendChild(note);
+  }
+
+  /* ─── admin panel (جلسة أدمن موثقة فقط) ─── */
+
+  function logLabel(a) {
+    return { vip_activate: 'تفعيل VIP', vip_extend: 'تمديد VIP', vip_revoke: 'إلغاء VIP' }[a] || a;
+  }
+
+  function renderAdmin() {
+    viewEl.innerHTML = '';
+    var refresh = el('button', 'link-btn');
+    refresh.type = 'button';
+    refresh.appendChild(svgIcon('refresh', 13));
+    refresh.appendChild(el('span', null, 'تحديث'));
+    refresh.addEventListener('click', function () { renderAdmin(); });
+    viewEl.appendChild(sectionTitle('لوحة الإدارة', refresh));
+
+    if (!state.online) {
+      viewEl.appendChild(emptyBox('لوحة الإدارة تحتاج اتصالاً بخادم ESCUILA.<br>الوضع الحالي ثابت (بلا جلسة).', 'wifiOff'));
+      return;
+    }
+
+    var wrap = el('div', 'admin-stats');
+    wrap.appendChild(el('div', 'loading', 'جارٍ تحميل الأرقام…'));
+    viewEl.appendChild(wrap);
+
+    var quick = el('div', 'btn-row');
+    var uBtn = el('button', 'secondary-btn');
+    uBtn.type = 'button';
+    uBtn.appendChild(svgIcon('users', 16));
+    uBtn.appendChild(el('span', null, 'المستخدمون'));
+    uBtn.addEventListener('click', function () { push({ type: 'adminUsers' }); });
+    var lBtn = el('button', 'secondary-btn');
+    lBtn.type = 'button';
+    lBtn.appendChild(svgIcon('logs', 16));
+    lBtn.appendChild(el('span', null, 'سجل الإدارة'));
+    lBtn.addEventListener('click', function () { push({ type: 'adminLogs' }); });
+    quick.appendChild(uBtn);
+    quick.appendChild(lBtn);
+    viewEl.appendChild(quick);
+
+    apiFetch('/api/admin/stats').then(function (r) {
+      var st = r.stats;
+      wrap.innerHTML = '';
+      [['المستخدمون', st.users], ['VIP نشط', st.vip_active],
+       ['الملفات', st.files], ['الأقسام', st.categories],
+       ['جديد 7 أيام', st.new_users_7d], ['مشاهدات', st.file_views]]
+        .forEach(function (p) {
+          var cell = el('div', 'admin-stat');
+          cell.appendChild(el('div', 'admin-stat-v',
+            p[1] === null || p[1] === undefined ? '—' : String(p[1])));
+          cell.appendChild(el('div', 'admin-stat-k', p[0]));
+          wrap.appendChild(cell);
+        });
+    }).catch(function (e) {
+      wrap.innerHTML = '';
+      wrap.appendChild(emptyBox(e.message, 'wifiOff'));
+    });
+  }
+
+  function renderAdminUsers() {
+    viewEl.innerHTML = '';
+    viewEl.appendChild(sectionTitle('إدارة المستخدمين'));
+
+    var box = el('div', 'admin-search');
+    var input = el('input', 'admin-input');
+    input.type = 'text';
+    input.placeholder = 'معرّف تيليجرام أو الاسم…';
+    input.enterKeyHint = 'search';
+    var go = el('button', 'primary-btn');
+    go.appendChild(svgIcon('search', 15));
+    go.appendChild(el('span', null, 'بحث'));
+    box.appendChild(input);
+    box.appendChild(go);
+    viewEl.appendChild(box);
+
+    var results = el('div', 'admin-rows');
+    viewEl.appendChild(results);
+
+    function doSearch() {
+      var q = input.value.trim();
+      if (!q) return;
+      input.blur();
+      results.innerHTML = '';
+      results.appendChild(el('div', 'loading', 'جارٍ البحث…'));
+      apiFetch('/api/admin/users?q=' + encodeURIComponent(q)).then(function (r) {
+        results.innerHTML = '';
+        if (!r.users.length) {
+          results.appendChild(emptyBox('لا نتائج مطابقة.', 'search'));
+          return;
+        }
+        r.users.forEach(function (u) {
+          var b = el('button', 'admin-user-row');
+          b.appendChild(svgIcon(u.vip ? 'star' : 'user', 16));
+          b.appendChild(el('span', null,
+            u.name + ' · ' + u.id + (u.vip ? ' (VIP حتى ' + u.vip_expires + ')' : '')));
+          b.appendChild(svgIcon('chevLeft', 14));
+          b.addEventListener('click', function () {
+            haptic();
+            push({ type: 'adminUser', user: u });
+          });
+          results.appendChild(b);
+        });
+      }).catch(function (e) {
+        results.innerHTML = '';
+        results.appendChild(emptyBox(e.message, 'wifiOff'));
+      });
+    }
+    go.addEventListener('click', doSearch);
+    input.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') doSearch(); });
+    setTimeout(function () { input.focus(); }, 120);
+  }
+
+  function refreshAdminUser(u) {
+    return apiFetch('/api/admin/users?q=' + u.id).then(function (r) {
+      if (r.users.length) {
+        state.stack[state.stack.length - 1].user = r.users[0];
+        render();
+      }
+    });
+  }
+
+  function renderAdminUser(u) {
+    viewEl.innerHTML = '';
+
+    var box = el('div', 'detail-box');
+    var ring = el('div', 'lock-ring');
+    ring.appendChild(svgIcon('user', 26));
+    box.appendChild(ring);
+    box.appendChild(el('div', 'detail-name', u.name || ('مستخدم ' + u.id)));
+    box.appendChild(el('div', 'detail-type', 'معرّف: ' + u.id + (u.joined ? ' · انضم ' + u.joined : '')));
+    box.appendChild(el('div',
+      u.vip ? 'detail-badge badge-free' : 'detail-badge badge-vip',
+      u.vip ? '★ مشترك نشط — ينتهي ' + u.vip_expires : 'ليس مشتركاً حالياً'));
+    box.appendChild(el('div', 'detail-path', 'النقاط: ' + u.points + (u.blocked ? ' · حساب موقوف' : '')));
+    viewEl.appendChild(box);
+
+    if (u.blocked) {
+      viewEl.appendChild(el('div', 'detail-note',
+        'هذا الحساب موقوف — أدر الحظر من أوامر البوت.'));
+      return;
+    }
+
+    viewEl.appendChild(el('div', 'section-title', 'VIP: تفعيل / تمديد'));
+    var daysRow = el('div', 'chipbar');
+    [30, 90, 180, 365].forEach(function (d) {
+      var b = el('button', 'fchip', d + ' يوم');
+      b.type = 'button';
+      b.addEventListener('click', function () {
+        haptic('light');
+        apiFetch('/api/admin/vip', {
+          method: 'POST',
+          body: { user_id: u.id, action: u.vip ? 'extend' : 'activate', days: d }
+        }).then(function (r) {
+          showToast((u.vip ? 'تم التمديد حتى ' : 'تم التفعيل حتى ') + r.expires);
+          refreshAdminUser(u);
+        }).catch(function (e) {
+          showToast(e.message);
+        });
+      });
+      daysRow.appendChild(b);
+    });
+    viewEl.appendChild(daysRow);
+
+    var revoke = el('button', 'secondary-btn');
+    revoke.type = 'button';
+    revoke.textContent = 'إلغاء اشتراك VIP';
+    revoke.addEventListener('click', function () {
+      if (!revoke.dataset.arm) {
+        revoke.dataset.arm = '1';
+        revoke.textContent = '⚠️ اضغط مجدداً للتأكيد';
+        setTimeout(function () {
+          revoke.dataset.arm = '';
+          revoke.textContent = 'إلغاء اشتراك VIP';
+        }, 2500);
+        return;
+      }
+      apiFetch('/api/admin/vip', {
+        method: 'POST',
+        body: { user_id: u.id, action: 'revoke' }
+      }).then(function () {
+        showToast('أُلغي الاشتراك وأُبلغ المستخدم');
+        refreshAdminUser(u);
+      }).catch(function (e) {
+        showToast(e.message);
+      });
+    });
+    viewEl.appendChild(revoke);
+
+    viewEl.appendChild(el('div', 'detail-note',
+      'كل عملية تُسجَّل في سجل الإدارة مع الوقت والنتيجة، ويُبلَّغ المستخدم تلقائياً.'));
+  }
+
+  function renderAdminLogs() {
+    viewEl.innerHTML = '';
+    viewEl.appendChild(sectionTitle('سجل الإدارة'));
+    var list = el('div', 'admin-rows');
+    list.appendChild(el('div', 'loading', 'جارٍ التحميل…'));
+    viewEl.appendChild(list);
+    apiFetch('/api/admin/logs?limit=60').then(function (r) {
+      list.innerHTML = '';
+      if (!r.logs.length) {
+        list.appendChild(emptyBox('لا عمليات مسجلة بعد.', 'logs'));
+        return;
+      }
+      r.logs.forEach(function (l) {
+        var item = el('div', 'admin-log');
+        item.appendChild(el('div', 'admin-log-top',
+          logLabel(l.action) + (l.target ? ' — مستخدم ' + l.target : '')));
+        item.appendChild(el('div', 'admin-log-ts',
+          'أدمن ' + l.admin_id + ' · ' + String(l.ts || '').slice(0, 16).replace('T', ' ')));
+        list.appendChild(item);
+      });
+    }).catch(function (e) {
+      list.appendChild(emptyBox(e.message, 'wifiOff'));
+    });
   }
 
   /* ─── locked category ─── */
@@ -1816,6 +2150,7 @@
       })
       .then(function (s) {
         state.botUsername = s.bot_username || '';
+        state.api = (s.api || '').replace(/\/+$/, '');
         state.starsPrice = parseInt(s.stars_price, 10) || 0;
         state.madPrice = parseInt(s.mad_price, 10) || 0;
         var v = s.version || Date.now();
@@ -1835,6 +2170,7 @@
         render();
         updateTabbar();
         syncFavsFromCloud();
+        initSession();
         // deep link from the bot (startapp=cat_<id> / file_<id>) — once
         if (!state.startParamDone) {
           state.startParamDone = true;

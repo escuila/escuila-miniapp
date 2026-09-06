@@ -1321,3 +1321,100 @@ body.kb-open #bottombar { display: none; }
 @media (prefers-reduced-motion: reduce) {
   #view.nav-fwd, #view.nav-back { animation: none !important; }
 }
+
+/* ═════════ v10 — حساب المستخدم + لوحة الإدارة ═════════ */
+
+.account-card { margin-bottom: 14px; }
+.account-card .icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(245, 158, 11, 0.08));
+  color: #d97706;
+}
+body.dark .account-card .icon { color: #fbbf24; }
+
+.vip-live-pill {
+  display: inline-block;
+  margin-bottom: 8px;
+  background: rgba(34, 197, 94, 0.14);
+  color: var(--free-fg);
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 7px 14px;
+}
+
+/* لوحة الإدارة */
+.admin-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.admin-stat {
+  background: var(--secondary-bg);
+  border-radius: 12px;
+  padding: 12px 6px;
+  text-align: center;
+}
+
+.admin-stat-v { font-size: 20px; font-weight: 800; }
+.admin-stat-k { font-size: 11px; color: var(--hint); margin-top: 3px; }
+
+.admin-search {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.admin-input {
+  flex: 1;
+  border: 1px solid rgba(127, 127, 127, 0.2);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text);
+  padding: 10px 14px;
+  font-size: 16px;
+  outline: none;
+}
+
+.admin-input:focus { border-color: var(--link); }
+
+.admin-rows { display: flex; flex-direction: column; gap: 8px; }
+
+.admin-user-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: right;
+  background: var(--secondary-bg);
+  border: none;
+  border-radius: 12px;
+  padding: 12px;
+  font-size: 14px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.admin-user-row .svg-ic:first-child { color: var(--link); }
+.admin-user-row > span { flex: 1; min-width: 0; word-break: break-word; }
+.admin-user-row .svg-ic:last-child { color: var(--hint); }
+.admin-user-row:active { transform: scale(0.985); }
+
+.admin-log {
+  background: var(--secondary-bg);
+  border-radius: 12px;
+  padding: 11px 13px;
+}
+
+.admin-log-top { font-size: 13.5px; font-weight: 600; }
+.admin-log-ts { font-size: 11.5px; color: var(--hint); margin-top: 3px; }
+
+#bottombar .tab[data-tab="admin"] .ticon { color: #d97706; }
+body.dark #bottombar .tab[data-tab="admin"] .ticon { color: #fbbf24; }
