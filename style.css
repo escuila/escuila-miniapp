@@ -389,6 +389,53 @@ body.dark #logo { filter: brightness(0) invert(1); }
   margin-top: 8px;
 }
 
+.article-preview-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px 16px;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.article-preview-thumb {
+  max-width: 200px;
+  max-height: 130px;
+  border-radius: 12px;
+  object-fit: cover;
+  margin-bottom: 16px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+}
+
+.article-preview-badge {
+  display: inline-block;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--link);
+  background: var(--bg);
+  padding: 6px 14px;
+  border-radius: 20px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border);
+}
+
+.article-preview-desc {
+  font-size: 14px;
+  color: var(--hint);
+  line-height: 1.7;
+  max-width: 320px;
+  margin: 0 0 20px;
+}
+
+.article-preview-btn {
+  padding: 12px 28px;
+  font-size: 15px;
+  font-weight: 700;
+  border-radius: 12px;
+}
+
 /* ─── v3: stats / refresh / favorites / filter / breadcrumb ─── */
 
 .stat-line {

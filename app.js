@@ -522,6 +522,10 @@
     return null;
   }
 
+  function isBloggerUrl(url) {
+    return /^https?:\/\/(www\.)?escuila\.info/i.test(url) || /blogspot\.com/i.test(url);
+  }
+
   // Best embed URL for a public file link, or null if it should not be
   // embedded at all. Telegram pages block framing; direct PDFs go through
   // the Google Docs viewer because mobile browsers rarely render PDFs in a
@@ -529,6 +533,7 @@
   function embedUrl(url) {
     if (!url || !/^https:\/\//i.test(url)) return null;
     if (isImageUrl(url)) return null;
+    if (isBloggerUrl(url)) return null;
     if (/^https:\/\/t\.me\//i.test(url)) return null;
     var drv = drivePreview(url);
     if (drv) return drv;
@@ -1938,6 +1943,24 @@
       };
       img.src = f.u;
       stage.appendChild(img);
+    } else if (isBloggerUrl(f.u)) {
+      spinner.hidden = true;
+      var card = el('div', 'article-preview-card');
+      if (f.t) {
+        var thumb = el('img', 'article-preview-thumb');
+        thumb.src = f.t;
+        thumb.alt = f.n;
+        card.appendChild(thumb);
+      }
+      var badge = el('div', 'article-preview-badge', '📰 مقال تعليمي من مدونة Escuila');
+      card.appendChild(badge);
+      var desc = el('p', 'article-preview-desc', 'لقراءة المحتوى الكامل والشروحات التفاعلية، اضغط على زر القراءة أدناه ليتم فتحه مباشرة وبشكل كامل.');
+      card.appendChild(desc);
+      var readBtn = el('button', 'primary-btn article-preview-btn', '📖 قراءة المقال الآن');
+      readBtn.type = 'button';
+      readBtn.addEventListener('click', openExternal);
+      card.appendChild(readBtn);
+      stage.appendChild(card);
     } else if (src) {
       var frame = document.createElement('iframe');
       frame.className = 'viewer-frame';
@@ -1967,7 +1990,7 @@
       var inBrowser = el('button', 'primary-btn');
       inBrowser.type = 'button';
       inBrowser.appendChild(svgIcon('share', 16));
-      inBrowser.appendChild(el('span', null, 'فتح في المتصفح'));
+      inBrowser.appendChild(el('span', null, isBloggerUrl(f.u) ? 'قراءة المقال' : 'فتح في المتصفح'));
       inBrowser.addEventListener('click', openExternal);
       actions.appendChild(inBrowser);
     }
@@ -1982,7 +2005,8 @@
     viewEl.appendChild(wrap);
 
     // native MainButton = the one "open in browser" affordance in Telegram
-    setMainButton(hasMain ? 'فتح في المتصفح' : null, hasMain ? openExternal : null);
+    var mainBtnText = isBloggerUrl(f.u) ? '📖 قراءة المقال' : 'فتح في المتصفح';
+    setMainButton(hasMain ? mainBtnText : null, hasMain ? openExternal : null);
 
     // slow-source nudge: after 6s point the user at the fallback buttons
     setTimeout(function () {
@@ -2150,7 +2174,16 @@
       })
       .then(function (s) {
         state.botUsername = s.bot_username || '';
-        state.api = (s.api || '').replace(/\/+$/, '');
+        var apiOverride = '';
+        try {
+          var sp = new URLSearchParams(window.location.search);
+          apiOverride = sp.get('api') || '';
+          if (!apiOverride && window.location.hash) {
+            var hp = new URLSearchParams(window.location.hash.substring(1));
+            apiOverride = hp.get('api') || '';
+          }
+        } catch (e) { /* older browsers */ }
+        state.api = (apiOverride || s.api || '').replace(/\/+$/, '');
         state.starsPrice = parseInt(s.stars_price, 10) || 0;
         state.madPrice = parseInt(s.mad_price, 10) || 0;
         var v = s.version || Date.now();
