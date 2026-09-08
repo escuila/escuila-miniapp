@@ -741,6 +741,20 @@
     if (state.stack[state.stack.length - 1].type === 'home') render();
   }
 
+  // تحديث صامت لبيانات المستخدم (VIP / نقاط) عند العودة للصفحة الرئيسية
+  // يحل مشكلة: المستخدم يدفع في البوت ثم يعود للتطبيق ولا يرى التفعيل
+  function refreshMe() {
+    if (!state.api || !tg || !tg.initData) return;
+    apiFetch('/api/me').then(function (r) {
+      if (!r.user) return;
+      var wasVip = state.me && state.me.vip;
+      state.me = r.user;
+      state.me.is_admin = r.user.is_admin || false;
+      // إذا تغير VIP أعد رسم الشاشة الحالية
+      if (wasVip !== r.user.vip) render();
+    }).catch(function () { /* صامت — لا نكسر UX */ });
+  }
+
   function sectionTitle(text, trailing) {
     var head = el('div', 'section-title with-action');
     head.appendChild(el('span', null, text));
@@ -787,6 +801,8 @@
     render();
     updateTabbar();
     if (tab === 'search' && !(opts && opts.noFocus)) searchEl.focus();
+    // تحديث صامت لبيانات VIP عند العودة للصفحة الرئيسية
+    if (tab === 'home') refreshMe();
   }
 
   function render() {
@@ -1404,6 +1420,10 @@
     if (tooSoon()) return;
     haptic('light');
     recordRecent(f.id);
+    // سجّل النقرة في الخادم بشكل صامت (لا يؤثر على UX إن فشل)
+    if (state.online && state.api) {
+      apiFetch('/api/file-click/' + f.id, { method: 'POST' }).catch(function () { /* silent */ });
+    }
     push({ type: 'file', file: f });
   }
 
