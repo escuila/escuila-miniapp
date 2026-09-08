@@ -719,6 +719,7 @@
 
   function initSession(attempt) {
     if (!state.api || !tg || !tg.initData) return; // الوضع الثابت — بلا جلسة
+    state._lastSessTry = Date.now();
     if (attempt === undefined) attempt = 1;
     apiFetch('/api/session', { method: 'POST' }).then(function (r) {
       state.me = r.user || null;
@@ -781,6 +782,8 @@
 
   function switchTab(tab, opts) {
     if (tab === 'admin' && !(state.me && state.me.is_admin)) return;
+    // عودة المستخدم للرئيسية = نية صريحة: أعد فحص الجلسة فوراً إن كنا بلا اتصال
+    if (tab === 'home') state._lastSessTry = 0;
     haptic();
     state.tab = tab;
     state.stack = [{ type: TAB_ROOTS[tab] }];
@@ -850,6 +853,13 @@
 
   function renderHome() {
     viewEl.innerHTML = '';
+
+    // شفاء ذاتي: إن كان الخادم قد يكون عاد (نفق أعيد تشغيله) أعد محاولة الجلسة
+    if (!state.online && state.api &&
+        Date.now() - (state._lastSessTry || 0) > 60000) {
+      state._lastSessTry = Date.now();
+      initSession();
+    }
 
     var freeCount = state.files.filter(function (f) { return !!f.u; }).length;
     viewEl.appendChild(el('div', 'stat-line',
