@@ -107,7 +107,8 @@
     shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
     users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
     user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
-    logs: '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>'
+    logs: '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>',
+    download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>'
   };
 
   function svgIcon(name, size) {
@@ -470,6 +471,48 @@
 
   function openInBot(f) {
     openBotChat('file_' + f.id);
+  }
+
+  /* ─── direct download (تحميل مباشر من التطبيق — بدون البوت) ─── */
+
+  // فتح رابط في المتصفح: الخادم يرسل Content-Disposition: attachment فيبدأ
+  // التنزيل فوراً. tg.downloadFile (Bot API 8+) يُجرَّب فقط عند غياب openLink
+  // لأنه يشترط أن يكون الملف من نفس نطاق التطبيق — وهو ليس حالة النفق.
+  function openExternalUrl(url) {
+    try {
+      if (tg && tg.openLink) { tg.openLink(url); return; }
+    } catch (e) { /* fall through */ }
+    try {
+      if (tg && typeof tg.downloadFile === 'function') { tg.downloadFile(url); return; }
+    } catch (e2) { /* fall through */ }
+    window.open(url, '_blank');
+  }
+
+  // المسار الموحد للتحميل المباشر: الخادم وحده يقرر الهدف — رابط عام،
+  // رابط مؤقت موقّع لملف داخلي، أو تسليم عبر البوت. الواجهة تنفّذ فقط.
+  function requestDirectDownload(f, btn) {
+    var sp = btn ? btn.querySelector('span') : null;
+    var label = sp ? sp.textContent : '';
+    if (sp) sp.textContent = 'جارٍ التحضير…';
+    if (btn) btn.disabled = true;
+    apiFetch('/api/file-download/' + f.id).then(function (r) {
+      if (sp) sp.textContent = label;
+      if (btn) btn.disabled = false;
+      if (r.mode === 'web' && r.url) {
+        openExternalUrl(r.url);
+      } else if (r.mode === 'download' && r.url) {
+        openExternalUrl(state.api + r.url);
+      } else {
+        showToast(r.reason || 'يُسلَّم هذا الملف عبر البوت');
+        setTimeout(function () { openInBot(f); }, 700);
+      }
+    }).catch(function (e) {
+      if (sp) sp.textContent = label;
+      if (btn) btn.disabled = false;
+      if (e.code === 'vip_required') { push({ type: 'vip' }); return; }
+      showToast(e.message || 'تعذر التحميل المباشر — سيُفتح البوت');
+      setTimeout(function () { openInBot(f); }, 700);
+    });
   }
 
   function shareFile(f) {
@@ -920,7 +963,8 @@
     viewEl.appendChild(el('div', 'stat-line',
       state.cats.length + ' قسم · ' + state.files.length + ' ملف · ' + freeCount + ' للقراءة المباشرة'));
 
-    if (state.online && state.me) {
+    // بطاقة الحساب تعمل أيضاً ببيانات الكاش عندما يكون الخادم بعيد المنال
+    if (state.me) {
       var me = state.me;
       var acc = el('button', 'card account-card');
       acc.type = 'button';
@@ -997,7 +1041,8 @@
     if (reco.length) viewEl.appendChild(hScrollRow('مقترح لك', reco));
 
     // ─── قسم VIP ───
-    if (state.online && state.me && state.me.vip) {
+    // يُبنى على state.me حتى لو جاء من الكاش (state.online=false عند تعطل الـ API)
+    if (state.me && state.me.vip) {
       // المشترك: عرض ملفاته الحصرية مباشرة
       var vipFiles = state.files.filter(function (f) { return f.r === 'vip'; }).slice(0, 8);
       if (vipFiles.length) {
@@ -1038,8 +1083,8 @@
   function renderLibrary() {
     viewEl.innerHTML = '';
 
-    // ─── اختصار VIP للمشتركين ───
-    if (state.online && state.me && state.me.vip) {
+    // ─── اختصار VIP للمشتركين ─── (يعمل بالكاش أيضاً عند تعطل الـ API)
+    if (state.me && state.me.vip) {
       var vipCount = state.files.filter(function (f) { return f.r === 'vip'; }).length;
       var vipRow = el('button', 'vip-library-row');
       vipRow.type = 'button';
@@ -1569,7 +1614,8 @@
     if (meta) box.appendChild(el('div', 'detail-path', meta));
 
     var access = fileAccess(f);
-    var isVipUser = state.online && state.me && (state.me.vip || state.me.is_admin);
+    // حالة VIP من الكاش تكفي للعرض عند تعطل الـ API — قرار الفتح يبقى للخادم
+    var isVipUser = !!(state.me && (state.me.vip || state.me.is_admin));
 
     // البادج — يختلف بحسب حالة المستخدم
     var badge;
@@ -1580,7 +1626,7 @@
         ? ['detail-badge badge-free', '💎 محتوى حصري — اشتراكك مفعّل ✓']
         : ['detail-badge badge-vip', '🔒 حصري — محتوى EscuilaVIP'];
     } else {
-      badge = ['detail-badge badge-bot', '🤖 مجاني — يُسلَّم عبر البوت'];
+      badge = ['detail-badge badge-bot', '⚡ مجاني — تحميل مباشر أو عبر البوت'];
     }
     box.appendChild(el('div', badge[0], badge[1]));
 
@@ -1625,12 +1671,15 @@
           openLive.querySelector('span').textContent = 'جارٍ الفتح…';
           apiFetch('/api/file-access/' + f.id).then(function (r) {
             openLive.disabled = false;
+            openLive.querySelector('span').textContent = '▶ اقرأ الآن';
             if (r.mode === 'web' && r.url) {
               recordRecent(f.id);
               push({ type: 'viewer', file: { id: f.id, n: f.n, u: r.url, c: f.c } });
+            } else if (r.mode === 'download' && r.url) {
+              openExternalUrl(state.api + r.url);
             } else {
-              showToast(r.reason || 'يُسلَّم هذا الملف عبر البوت');
-              openInBot(f);
+              // ملف حصري بلا رابط عام — تحميل مباشر بمعرّف داخلي بدل مغادرة التطبيق
+              requestDirectDownload(f, null);
             }
           }).catch(function (e) {
             openLive.disabled = false;
@@ -1676,7 +1725,19 @@
           'هذا الملف حصري لمشتركي EscuilaVIP. الاشتراك والتحقق والتسليم داخل بوت Escuila.'));
       }
     } else {
-      var botBtn = el('button', 'primary-btn');
+      // ─── ملفات البوت: تحميل مباشر أولاً (رابط مؤقت من خادم ESCUILA)،
+      // والبوت يبقى خطة بديلة داخل نفس الشاشة ───
+      var dlBtn = el('button', 'primary-btn');
+      dlBtn.type = 'button';
+      dlBtn.appendChild(svgIcon('download', 17));
+      dlBtn.appendChild(el('span', null, 'تحميل مباشر'));
+      dlBtn.addEventListener('click', function () {
+        haptic('light');
+        requestDirectDownload(f, dlBtn);
+      });
+      box.appendChild(dlBtn);
+
+      var botBtn = el('button', 'secondary-btn');
       botBtn.type = 'button';
       botBtn.appendChild(svgIcon('send', 17));
       botBtn.appendChild(el('span', null, 'استلام الملف من البوت'));
@@ -1686,7 +1747,7 @@
       box.appendChild(favShareRow(f));
 
       box.appendChild(el('div', 'detail-note',
-        'يتم تسليم هذا الملف داخل محادثة البوت مباشرة.'));
+        'التحميل المباشر يفتح الملف في متصفحك دون مغادرة التطبيق — وإن لم يتوفر سيحوّلك تلقائياً إلى البوت.'));
     }
 
     viewEl.appendChild(box);
@@ -1703,7 +1764,7 @@
     hero.appendChild(gem);
     hero.appendChild(el('div', 'detail-name', 'Escuila VIP'));
     var me = state.me;
-    if (state.online && me && me.vip) {
+    if (me && me.vip) {
       hero.appendChild(el('div', 'vip-live-pill',
         '✓ اشتراكك نشط — متبقٍ ' + me.vip_days_left + ' يوم (حتى ' + me.vip_expires + ')'));
       hero.appendChild(el('div', 'vip-tag', 'التجديد يمدد مدتك الحالية تلقائياً'));
@@ -1750,7 +1811,7 @@
     var cta = el('button', 'primary-btn vip-cta');
     cta.type = 'button';
     cta.appendChild(svgIcon('zap', 17));
-    var isSubscriber = state.online && state.me && state.me.vip;
+    var isSubscriber = !!(state.me && state.me.vip);
     cta.appendChild(el('span', null, state.starsPrice > 0
       ? (isSubscriber ? 'تجديد الاشتراك — ' + state.starsPrice + ' ⭐'
                       : 'اشترك الآن — ' + state.starsPrice + ' ⭐')
