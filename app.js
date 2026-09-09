@@ -491,6 +491,12 @@
   // المسار الموحد للتحميل المباشر: الخادم وحده يقرر الهدف — رابط عام،
   // رابط مؤقت موقّع لملف داخلي، أو تسليم عبر البوت. الواجهة تنفّذ فقط.
   function requestDirectDownload(f, btn) {
+    if (!state.api) {
+      // لا خادم مهيأ (وضع ثابت بلا نفق) — التسليم عبر البوت مباشرة بلا محاولة فاشلة
+      showToast('التحميل المباشر يحتاج اتصال الخادم — جارٍ فتح البوت…');
+      setTimeout(function () { openInBot(f); }, 600);
+      return;
+    }
     var sp = btn ? btn.querySelector('span') : null;
     var label = sp ? sp.textContent : '';
     if (sp) sp.textContent = 'جارٍ التحضير…';
@@ -510,7 +516,7 @@
       if (sp) sp.textContent = label;
       if (btn) btn.disabled = false;
       if (e.code === 'vip_required') { push({ type: 'vip' }); return; }
-      showToast(e.message || 'تعذر التحميل المباشر — سيُفتح البوت');
+      showToast(apiErrMsg(e, 'تعذر الوصول لخادم ESCUILA — جارٍ فتح البوت…'));
       setTimeout(function () { openInBot(f); }, 700);
     });
   }
@@ -740,10 +746,22 @@
 
   /* ─── Mini API layer — نفس قاعدة بيانات البوت (وضع متصل/ثابت) ─── */
 
+  // رسائل فشل الشبكة يصيغها المتصفح بالإنجليزية («Failed to fetch» وغيرها) —
+  // نستبدلها برسالة عربية مفهومة قبل عرضها للمستخدم
+  function apiErrMsg(e, fallback) {
+    var msg = (e && e.message) || '';
+    if (!msg || /failed to fetch|networkerror|load failed|timed? ?out|unexpected end/i.test(msg)) {
+      return fallback;
+    }
+    return msg;
+  }
+
   function apiFetch(path, opts) {
     opts = opts || {};
     opts.headers = opts.headers || {};
     opts.headers['X-Telegram-InitData'] = (tg && tg.initData) || '';
+    // بعض النفقات المجانية (ngrok) تطلب هذه الترويسة لتجاوز صفحة تحذير المتصفح
+    opts.headers['ngrok-skip-browser-warning'] = '1';
     if (opts.body !== undefined && typeof opts.body !== 'string') {
       opts.body = JSON.stringify(opts.body);
       opts.headers['Content-Type'] = 'application/json';
@@ -935,6 +953,7 @@
     else if (top.type === 'file') renderFileDetails(top.file);
     else if (top.type === 'viewer') renderViewer(top.file);
     else if (top.type === 'vip') renderVip();
+    else if (top.type === 'vipFiles') renderVipFiles();
     else if (top.type === 'results') renderResults(top.source, top.q, top.mode);
     else if (top.type === 'locked') renderLockedInfo(top.cat);
 
@@ -975,7 +994,9 @@
       ainfo.appendChild(el('div', 'fcard-name', me.is_admin ? 'وضع المدير' : (me.name || 'حسابي')));
       ainfo.appendChild(el('div', 'fcard-meta', me.vip
         ? '⭐ مشترك نشط — ينتهي بعد ' + me.vip_days_left + ' يوم · ' + me.points + ' نقطة'
-        : 'زائر · ' + me.points + ' نقطة — انضم لـ EscuilaVIP'));
+        : (me.expired
+          ? '⚠️ انتهى اشتراكك — جدّد الآن · ' + me.points + ' نقطة'
+          : 'زائر · ' + me.points + ' نقطة — انضم لـ EscuilaVIP')));
       acc.appendChild(ainfo);
       acc.appendChild(chevEl());
       acc.addEventListener('click', function () {
@@ -1043,27 +1064,31 @@
     // ─── قسم VIP ───
     // يُبنى على state.me حتى لو جاء من الكاش (state.online=false عند تعطل الـ API)
     if (state.me && state.me.vip) {
-      // المشترك: عرض ملفاته الحصرية مباشرة
+      // المشترك: عرض ملفاته الحصرية مباشرة + قسم مخصص قابل للتصفح
       var vipFiles = state.files.filter(function (f) { return f.r === 'vip'; }).slice(0, 8);
       if (vipFiles.length) {
         viewEl.appendChild(hScrollRow('💎 محتواك الحصري', vipFiles, function () {
-          state.filters = { lv: '', sb: '', tp: '', ac: 'vip' };
-          push({ type: 'results', source: 'all' });
+          push({ type: 'vipFiles' });
         }));
       }
     } else {
-      // غير المشترك: بنر ترويجي
+      // غير المشترك: بنر ترويجي — وإن كان اشتراكاً منتهياً فرسالة التجديد أولاً
       var lockedCats = state.cats.filter(function (c) { return c.locked; });
       if (lockedCats.length || state.files.some(function (f) { return f.r === 'vip'; })) {
         var vipCount = state.files.filter(function (f) { return f.r === 'vip'; }).length;
         var vipCard = el('button', 'vip-banner');
         vipCard.type = 'button';
         var vg = el('div', 'vip-icon');
-        vg.appendChild(svgIcon('gem', 24));
+        vg.appendChild(svgIcon(state.me && state.me.expired ? 'refresh' : 'gem', 24));
         vipCard.appendChild(vg);
         var vinfo = el('div', 'vip-info');
-        vinfo.appendChild(el('div', 'vip-title', 'محتوى EscuilaVIP'));
-        vinfo.appendChild(el('div', 'vip-sub', vipCount + ' ملفاً حصرياً جاهزة للقراءة المباشرة'));
+        if (state.me && state.me.expired) {
+          vinfo.appendChild(el('div', 'vip-title', 'انتهى اشتراكك في EscuilaVIP'));
+          vinfo.appendChild(el('div', 'vip-sub', 'جدّد الآن لاستعادة ' + vipCount + ' ملفاً حصرياً'));
+        } else {
+          vinfo.appendChild(el('div', 'vip-title', 'محتوى EscuilaVIP'));
+          vinfo.appendChild(el('div', 'vip-sub', vipCount + ' ملفاً حصرياً جاهزة للقراءة المباشرة'));
+        }
         vipCard.appendChild(vinfo);
         vipCard.appendChild(chevEl());
         vipCard.addEventListener('click', function () { haptic('light'); push({ type: 'vip' }); });
@@ -1093,13 +1118,12 @@
       vipRow.appendChild(vli);
       var vlInfo = el('div', 'vip-library-info');
       vlInfo.appendChild(el('div', 'vip-library-title', '💎 ملفاتك الحصرية'));
-      vlInfo.appendChild(el('div', 'vip-library-sub', vipCount + ' ملفاً قابلاً للقراءة المباشرة'));
+      vlInfo.appendChild(el('div', 'vip-library-sub', vipCount + ' ملفاً — قسم مخصص قابل للتصفح'));
       vipRow.appendChild(vlInfo);
       vipRow.appendChild(chevEl());
       vipRow.addEventListener('click', function () {
         haptic('light');
-        state.filters = { lv: '', sb: '', tp: '', ac: 'vip' };
-        push({ type: 'results', source: 'all' });
+        push({ type: 'vipFiles' });
       });
       viewEl.appendChild(vipRow);
     }
@@ -1667,6 +1691,11 @@
         openLive.appendChild(el('span', null, '▶ اقرأ الآن'));
         openLive.addEventListener('click', function () {
           haptic('light');
+          if (!state.api) {
+            showToast('الفتح المباشر يحتاج اتصال الخادم — جارٍ فتح البوت…');
+            openInBot(f);
+            return;
+          }
           openLive.disabled = true;
           openLive.querySelector('span').textContent = 'جارٍ الفتح…';
           apiFetch('/api/file-access/' + f.id).then(function (r) {
@@ -1685,7 +1714,7 @@
             openLive.disabled = false;
             openLive.querySelector('span').textContent = '▶ اقرأ الآن';
             if (e.code === 'vip_required') push({ type: 'vip' });
-            else showToast(e.message || 'تعذر فتح الملف حالياً، حاول مجدداً');
+            else showToast(apiErrMsg(e, 'تعذر الوصول لخادم ESCUILA — حاول مجدداً أو اطلب عبر البوت'));
           });
         });
         box.appendChild(openLive);
@@ -1722,7 +1751,9 @@
         box.appendChild(favShareRow(f));
 
         box.appendChild(el('div', 'detail-note',
-          'هذا الملف حصري لمشتركي EscuilaVIP. الاشتراك والتحقق والتسليم داخل بوت Escuila.'));
+          state.me && state.me.expired
+            ? 'انتهى اشتراكك في ' + (state.me.vip_expires || '-') + ' — جدّد لفتح هذا الملف.'
+            : 'هذا الملف حصري لمشتركي EscuilaVIP. الاشتراك والتحقق والتسليم داخل بوت Escuila.'));
       }
     } else {
       // ─── ملفات البوت: تحميل مباشر أولاً (رابط مؤقت من خادم ESCUILA)،
@@ -1768,10 +1799,27 @@
       hero.appendChild(el('div', 'vip-live-pill',
         '✓ اشتراكك نشط — متبقٍ ' + me.vip_days_left + ' يوم (حتى ' + me.vip_expires + ')'));
       hero.appendChild(el('div', 'vip-tag', 'التجديد يمدد مدتك الحالية تلقائياً'));
+    } else if (me && me.expired) {
+      hero.appendChild(el('div', 'vip-live-pill vip-renew-pill',
+        '⚠️ انتهى اشتراكك في ' + (me.vip_expires || '-')));
+      hero.appendChild(el('div', 'vip-tag', 'جدّد الآن لاستعادة الوصول الكامل فوراً'));
     } else {
       hero.appendChild(el('div', 'vip-tag', 'وصول كامل لكل المحتوى الحصري'));
     }
     viewEl.appendChild(hero);
+
+    // للمشتركين: مدخل مباشر لقسم المحتوى الحصري المخصص
+    if (me && (me.vip || me.is_admin) && vipFilesAll().length) {
+      var browse = el('button', 'primary-btn vip-open-btn');
+      browse.type = 'button';
+      browse.appendChild(svgIcon('folder', 18));
+      browse.appendChild(el('span', null, '📂 تصفح المحتوى الحصري (' + vipFilesAll().length + ')'));
+      browse.addEventListener('click', function () {
+        haptic('light');
+        push({ type: 'vipFiles' });
+      });
+      viewEl.appendChild(browse);
+    }
 
     var feats = el('div', 'vip-feats');
     ['ملفات حصرية', 'تصحيحات منظمة', 'ملفات منسقة جاهزة', 'تنبيهات بالجديد', 'أولوية الدعم']
@@ -1812,10 +1860,12 @@
     cta.type = 'button';
     cta.appendChild(svgIcon('zap', 17));
     var isSubscriber = !!(state.me && state.me.vip);
+    var isExpired = !!(state.me && state.me.expired);
     cta.appendChild(el('span', null, state.starsPrice > 0
       ? (isSubscriber ? 'تجديد الاشتراك — ' + state.starsPrice + ' ⭐'
-                      : 'اشترك الآن — ' + state.starsPrice + ' ⭐')
-      : 'اشترك بالنجوم عبر البوت'));
+                      : (isExpired ? 'جدّد الاشتراك — ' + state.starsPrice + ' ⭐'
+                                   : 'اشترك الآن — ' + state.starsPrice + ' ⭐'))
+      : (isExpired ? 'جدّد الاشتراك عبر البوت' : 'اشترك بالنجوم عبر البوت')));
     cta.addEventListener('click', function () { openBotChat(''); });
     viewEl.appendChild(cta);
     viewEl.appendChild(el('div', 'vip-cta-note',
@@ -1846,6 +1896,126 @@
     note.appendChild(el('span', null,
       'الاشتراك والتحقق والتسليم تتم داخل بوت Escuila — التطبيق والبوت نظام واحد'));
     viewEl.appendChild(note);
+  }
+
+  /* ─── قسم المحتوى الحصري — نسخة التطبيق من مركز «ملفات VIP» في البوت ───
+     يعمل من files.json الثابتة (تصفح بلا خادم)؛ الفتح نفسه يبقى بتحقق الخادم */
+
+  function vipFilesAll() {
+    return state.files.filter(function (f) { return f.r === 'vip'; });
+  }
+
+  function renderVipFiles() {
+    viewEl.innerHTML = '';
+
+    var all = vipFilesAll();
+    var me = state.me;
+    var isVip = !!(me && (me.vip || me.is_admin));
+
+    // الترويسة
+    var head = el('div', 'vip-hero');
+    var gem = el('div', 'vip-gem');
+    gem.appendChild(svgIcon('gem', 26));
+    head.appendChild(gem);
+    head.appendChild(el('div', 'detail-name', 'المحتوى الحصري'));
+    head.appendChild(el('div', 'vip-tag', all.length + ' ملفاً حصرياً — نفس مكتبة VIP في البوت'));
+    viewEl.appendChild(head);
+
+    // ─── غير مشترك: بوابة اشتراك (لا تُكشف أسماء الملفات) ───
+    if (!isVip) {
+      if (me && me.expired) {
+        var renewCard = el('button', 'vip-banner');
+        renewCard.type = 'button';
+        var rIcon = el('div', 'vip-icon');
+        rIcon.appendChild(svgIcon('refresh', 24));
+        renewCard.appendChild(rIcon);
+        var rInfo = el('div', 'vip-info');
+        rInfo.appendChild(el('div', 'vip-title', 'انتهى اشتراكك في EscuilaVIP'));
+        rInfo.appendChild(el('div', 'vip-sub',
+          'كان ينتهي في ' + (me.vip_expires || '-') + ' — جدّد لاستعادة ' + all.length + ' ملفاً'));
+        renewCard.appendChild(rInfo);
+        renewCard.appendChild(chevEl());
+        renewCard.addEventListener('click', function () { haptic('light'); push({ type: 'vip' }); });
+        viewEl.appendChild(renewCard);
+      } else {
+        var gate = el('div', 'empty');
+        gate.appendChild(svgIcon('lock', 44));
+        var gateText = el('div', 'empty-text');
+        gateText.innerHTML = 'هذه المكتبة محجوزة كاملة لمشتركي <b>EscuilaVIP</b>.<br>اشترك وافتح ' +
+          all.length + ' ملفاً مباشرة من التطبيق.';
+        gate.appendChild(gateText);
+        viewEl.appendChild(gate);
+
+        var gateBtn = el('button', 'primary-btn vip-cta');
+        gateBtn.type = 'button';
+        gateBtn.appendChild(svgIcon('gem', 17));
+        gateBtn.appendChild(el('span', null, 'اشترك في EscuilaVIP'));
+        gateBtn.addEventListener('click', function () { haptic('light'); push({ type: 'vip' }); });
+        viewEl.appendChild(gateBtn);
+      }
+      setMainButton('الاشتراك عبر البوت', function () { openBotChat(''); });
+      return;
+    }
+
+    // ─── مشترك: حالة الاشتراك + تنبيه التجديد القريب ───
+    var pillText = me.is_admin
+      ? '✓ وضع المدير — وصول كامل'
+      : '✓ اشتراكك نشط — متبقٍ ' + me.vip_days_left + ' يوم (حتى ' + (me.vip_expires || '-') + ')';
+    viewEl.appendChild(el('div', 'vip-live-pill', pillText));
+    if (me.vip && me.vip_days_left <= 7) {
+      var renew = el('button', 'secondary-btn vip-renew-banner');
+      renew.type = 'button';
+      renew.textContent = '⏳ اشتراكك ينتهي قريباً — اضغط للتجديد قبل الانتهاء';
+      renew.addEventListener('click', function () { haptic('light'); push({ type: 'vip' }); });
+      viewEl.appendChild(renew);
+    }
+
+    // بحث داخل الحصري فقط (شاشة البحث تصبح حصرية بفلتر الوصول)
+    var searchBtn = el('button', 'secondary-btn');
+    searchBtn.type = 'button';
+    searchBtn.appendChild(svgIcon('search', 15));
+    searchBtn.appendChild(el('span', null, 'بحث داخل المحتوى الحصري'));
+    searchBtn.addEventListener('click', function () {
+      haptic('light');
+      state.filters = { lv: '', sb: '', tp: '', ac: 'vip' };
+      switchTab('search');
+    });
+    viewEl.appendChild(searchBtn);
+
+    // فلتر المستويات داخل الحصري (محلي — لا يلوث فلاتر التصفح العامة)
+    var view = state.stack[state.stack.length - 1];
+    if (view.lv === undefined) view.lv = '';
+    var lvSeen = {};
+    all.forEach(function (f) { if (f.lv) lvSeen[f.lv] = true; });
+    var lvs = Object.keys(lvSeen).sort(function (a, b) { return levelRank(a) - levelRank(b); });
+    if (lvs.length > 1) {
+      var lvRow = el('div', 'chipbar');
+      lvs.forEach(function (lv) {
+        var chip = el('button', 'fchip' + (view.lv === lv ? ' on' : ''), lv);
+        chip.type = 'button';
+        chip.addEventListener('click', function () {
+          haptic();
+          view.lv = view.lv === lv ? '' : lv;
+          render();
+        });
+        lvRow.appendChild(chip);
+      });
+      viewEl.appendChild(lvRow);
+    }
+
+    var files = all.filter(function (f) { return !view.lv || f.lv === view.lv; })
+      .sort(function (a, b) { return b.id - a.id; });
+
+    viewEl.appendChild(sectionTitle('🔥 أحدث الملفات (' + files.length + ')'));
+    if (!files.length) {
+      viewEl.appendChild(emptyBox('لا ملفات مطابقة لهذا المستوى بعد.', 'gem'));
+      return;
+    }
+    var list = el('div', 'fgrid');
+    renderBatched(list, files, fileRow, 20);
+    viewEl.appendChild(list);
+    viewEl.appendChild(el('div', 'detail-note vip-active-note',
+      '✓ تُفتح الملفات بتحقق مباشر من خادم ESCUILA — دون المرور بالبوت.'));
   }
 
   /* ─── admin panel (جلسة أدمن موثقة فقط) ─── */

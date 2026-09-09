@@ -1348,6 +1348,20 @@ body.dark .account-card .icon { color: #fbbf24; }
   padding: 7px 14px;
 }
 
+/* ─── تنبيهات التجديد: اشتراك قارب على الانتهاء أو منتهٍ ─── */
+.vip-renew-pill {
+  background: rgba(245, 158, 11, 0.16);
+  color: var(--vip-fg);
+}
+.vip-renew-banner {
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--vip-fg);
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+.vip-renew-banner:active { transform: scale(0.985); }
+
 /* ─── زر فتح VIP المباشر (للمشتركين) ─── */
 .vip-open-btn {
   background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%);
