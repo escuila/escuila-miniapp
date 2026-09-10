@@ -1300,7 +1300,7 @@
     }
     if (cat && cat.locked && !(state.me && (state.me.vip || state.me.is_admin))) {
       viewEl.appendChild(el('div', 'detail-note',
-        '🔒 الملفات في هذا القسم مقفلة — التصفح مجاني والفتح يتطلب اشتراك EscuilaVIP.'));
+        '💎 محتوى هذا القسم من ملفات EscuilaVIP الحصرية. فعّل اشتراكك للوصول الكامل إلى جميع الملفات.'));
     }
   }
 
@@ -1795,7 +1795,7 @@
 
       box.appendChild(el('div', 'detail-note vip-active-note', isVipUser
         ? '✓ تم التعرف على اشتراكك النشط — الفتح بتحقق مباشر من خادم ESCUILA.'
-        : '🔒 هذا الملف حصري لمشتركي EscuilaVIP — الاشتراك يفتحه فوراً من هنا.'));
+        : '💎 هذا الملف ضمن المحتوى الحصري لمشتركي EscuilaVIP — فعّل اشتراكك وافتحه مباشرة من هنا.'));
     } else {
       // ─── ملفات البوت: تحميل مباشر أولاً (رابط مؤقت من خادم ESCUILA)،
       // والبوت يبقى خطة بديلة داخل نفس الشاشة ───
@@ -1819,7 +1819,7 @@
       box.appendChild(favShareRow(f));
 
       box.appendChild(el('div', 'detail-note',
-        'التحميل المباشر يفتح الملف في متصفحك دون مغادرة التطبيق — وإن لم يتوفر سيحوّلك تلقائياً إلى البوت.'));
+        'اضغط لتحميل الملف وفتحه مباشرة من المتصفح. إن تعذّر ذلك، سيتم توجيهك آلياً إلى المحادثة لاستلامه.'));
     }
 
     viewEl.appendChild(box);
@@ -2090,8 +2090,8 @@
     renderBatched(list, files, fileRow, 20);
     viewEl.appendChild(list);
     viewEl.appendChild(el('div', 'detail-note vip-active-note', isVip
-      ? '✓ تُفتح الملفات بتحقق مباشر من خادم ESCUILA — دون المرور بالبوت.'
-      : 'الفتح والقراءة يتطلبان اشتراكاً نشطاً — التصفح مجاني للاطلاع.'));
+      ? '✓ يتم التحقق من اشتراكك تلقائياً عند فتح كل ملف.'
+      : '💎 تصفّح القائمة واختر ما يناسبك — فعّل اشتراك EscuilaVIP للوصول الفوري إلى كل الملفات.'));
   }
 
   /* ─── تصفح سلسلة VIP: نفس شجرة المكتبة تماماً — لا شجرة منفصلة ───
@@ -2140,24 +2140,32 @@
 
   /* تبويب «الأقسام الحصرية» — نفس شجرة المكتبة مع فلتر VIP (كما vipcat في
      البوت): نبدأ من جذر شجرة الأقسام نفسها ونعرض الأبناء المحتويين VIP
-     بمسارهم الكامل؛ الدخول ينزل في نفس الشجرة حتى تظهر أسماء الملفات. */
+     بمسارهم الكامل؛ القسم الطرفي يعرض ملفاته VIP مباشرة (بطاقات تُفتح
+     للمشترك وتقود للاشتراك لغيره). */
   function renderVipCatsTab(isVip) {
-    // التنقل داخل تبويب الأقسام: catPid محفوظ في الـ view (بلا قفل دخول مسبق)
+    // التنقل داخل تبويب الأقسام: catPid محفوظ في الـ view
     var topView = state.stack[state.stack.length - 1];
     if (topView.catPid === undefined) topView.catPid = null;
 
     var kids = childrenOf(topView.catPid)
       .filter(function (c) { return hasVipInSubtree(c.id); })
       .sort(catSort);
+    // ملفات VIP المباشرة في هذا المستوى من الشجرة (بلا الأقسام الفرعية)
+    var directVip = state.files.filter(function (f) {
+      return f.r === 'vip' && f.c === topView.catPid;
+    });
 
+    var hereCat = topView.catPid === null ? null : catById(topView.catPid);
     viewEl.appendChild(sectionTitle(topView.catPid === null
       ? '📂 الأقسام الحصرية — كما في البوت'
-      : '📂 ' + (catById(topView.catPid) || {}).name));
+      : '📂 ' + (hereCat ? hereCat.name : '')));
 
-    if (!kids.length) {
+    if (!kids.length && !directVip.length) {
       viewEl.appendChild(emptyBox('لا توجد أقسام حصرية هنا.', 'gem'));
       return;
     }
+
+    // الأقسام الفرعية أولاً — نفس ترتيب البوت
     kids.forEach(function (c) {
       var count = vipCountInSubtree(c.id);
       var card = el('button', 'card vip-cat-card');
@@ -2181,7 +2189,18 @@
       viewEl.appendChild(card);
     });
 
-    // زر رجوع داخل الشجرة (المسار يظهر كسياق فوق كل بطاقة)
+    // ثم ملفات VIP الموجودة مباشرة في هذا القسم — تظهر بطاقاتها للجميع
+    if (directVip.length) {
+      viewEl.appendChild(sectionTitle(isVip
+        ? '📄 ملفات هذا القسم (' + directVip.length + ')'
+        : '🔒 ملفات هذا القسم (' + directVip.length + ')'));
+      var list = el('div', 'fgrid' + (isVip ? '' : ' vip-locked-grid'));
+      directVip.sort(function (a, b) { return b.id - a.id; })
+        .forEach(function (f) { list.appendChild(fileRow(f)); });
+      viewEl.appendChild(list);
+    }
+
+    // زر رجوع داخل الشجرة
     if (topView.catPid !== null) {
       var backBtn = el('button', 'secondary-btn');
       backBtn.type = 'button';
@@ -2194,9 +2213,6 @@
         render();
       });
       viewEl.appendChild(backBtn);
-    } else if (!isVip) {
-      viewEl.appendChild(el('div', 'detail-note',
-        '🔒 التنقل في نفس شجرة الأقسام ومعاينة الأسماء مجاني — فتح الملفات يتطلب اشتراك EscuilaVIP.'));
     }
   }
 
@@ -2427,7 +2443,7 @@
     box.appendChild(lockRing);
     box.appendChild(el('div', 'detail-name', c.name));
     box.appendChild(el('div', 'detail-note',
-      'هذا القسم حصري لأعضاء EscuilaVIP.\nالاشتراك يتم عبر نفس نظام البوت.'));
+      'محتوى هذا القسم حصري لمشتركي EscuilaVIP.\nفعّل اشتراكك للوصول الفوري إلى كامل الملفات.'));
 
     var open = el('button', 'primary-btn');
     open.type = 'button';
