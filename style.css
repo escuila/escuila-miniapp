@@ -1386,6 +1386,25 @@ body.dark .vip-cta-chip { background: linear-gradient(135deg, #fbbf24, #d97706);
 /* ─── بطاقات الأقسام الحصرية ─── */
 .vip-cat-card .icon { font-size: 22px; }
 
+/* ─── بطاقات الأقسام الحصرية: مسار القسم للسياق ─── */
+.vip-cat-card { align-items: flex-start; }
+.vip-cat-card .label { font-size: 15px; }
+.vip-cat-info { flex: 1; min-width: 0; }
+.vip-cat-path {
+  color: var(--hint);
+  font-size: 12px;
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vip-cat-path-head {
+  color: var(--vip-fg);
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
 /* ─── بطاقة سعر عريضة (نجوم فقط) ─── */
 .price-card-wide {
   flex: 1;

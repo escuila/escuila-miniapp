@@ -1043,6 +1043,7 @@
       ? 'جدّد الآن لاستعادة ' + vipAllFiles.length + ' ملفاً حصرياً'
       : vipAllFiles.length + ' ملفاً حصرياً + أقسام كاملة — اشترك وافتحها الآن'));
     wrap.appendChild(vinfo);
+    // البوابة تعرض التصفح (المعاينة تبيع) وزر «اشترك» المضمّن يفتح شاشة الاشتراك
     var vbtn = el('span', 'vip-cta-chip', isExpired ? 'تجديد' : 'اشترك');
     wrap.appendChild(vbtn);
     wrap.addEventListener('click', function () { haptic('light'); push({ type: 'vipFiles' }); });
@@ -1960,7 +1961,7 @@
     gem.appendChild(svgIcon('gem', 26));
     head.appendChild(gem);
     head.appendChild(el('div', 'detail-name', 'المحتوى الحصري'));
-    head.appendChild(el('div', 'vip-tag', all.length + ' ملفاً حصرياً · ' + vipLockedRoots().length + ' قسماً كاملاً'));
+    head.appendChild(el('div', 'vip-tag', all.length + ' ملفاً حصرياً · ' + state.cats.filter(function (c) { return c.locked; }).length + ' قسماً VIP'));
     viewEl.appendChild(head);
 
     if (isVip) {
@@ -1984,18 +1985,22 @@
         viewEl.appendChild(el('div', 'vip-live-pill vip-renew-pill',
           '🔒 المحتوى مقفل — اشترك لفتح ' + all.length + ' ملفاً'));
       }
+      // زر الاشتراك الموحّد — يفتح شاشة الاشتراك نفسها (renderVip) التي
+      // يفتحها البوت من كل مداخله: يدوي أساسي + نجوم خيار
       var subBtn = el('button', 'primary-btn vip-open-btn');
       subBtn.type = 'button';
       subBtn.appendChild(svgIcon('gem', 17));
-      subBtn.appendChild(el('span', null, state.starsPrice > 0
-        ? (me && me.expired ? 'جدّد الاشتراك — ' + state.starsPrice + ' ⭐' : 'اشترك الآن — ' + state.starsPrice + ' ⭐')
-        : (me && me.expired ? 'جدّد الاشتراك عبر البوت' : 'اشترك في EscuilaVIP')));
-      subBtn.addEventListener('click', openVipSubscribe);
+      subBtn.appendChild(el('span', null, me && me.expired
+        ? 'جدّد الاشتراك' + (state.madPrice > 0 ? ' — ' + state.madPrice + ' د.م' : '')
+        : 'اشترك الآن' + (state.madPrice > 0 ? ' — ' + state.madPrice + ' د.م' : '')));
+      subBtn.addEventListener('click', function () { haptic('light'); push({ type: 'vip' }); });
       viewEl.appendChild(subBtn);
-      setMainButton(subBtn.querySelector('span').textContent, openVipSubscribe);
+      setMainButton(subBtn.querySelector('span').textContent, function () { push({ type: 'vip' }); });
     }
 
     // ─── تبويبات القسم: الأقسام الحصرية (كما في البوت) · أحدث الملفات ───
+    // topView.catPid مشترك بين التبويبين: اختيار قسم في «الأقسام» يصفّي
+    // «أحدث الملفات» على شجرة ذلك القسم — سياق واحد لا يتشتت
     var topView = state.stack[state.stack.length - 1];
     if (topView.sub === undefined) topView.sub = 'cats';
     var tabs = el('div', 'chipbar vip-subtabs');
@@ -2018,6 +2023,15 @@
       return;
     }
 
+    // عنوان سياقي: ملفات القسم المختار أو كل الحصري
+    if (topView.catPid !== undefined && topView.catPid !== null) {
+      var pickedCat = catById(topView.catPid);
+      if (pickedCat) {
+        viewEl.appendChild(el('div', 'vip-cat-path vip-cat-path-head',
+          '📂 ' + catContextPath(pickedCat) + ' ← ' + pickedCat.name));
+      }
+    }
+
     // بحث داخل الحصري فقط (شاشة البحث تصبح حصرية بفلتر الوصول)
     var searchBtn = el('button', 'secondary-btn');
     searchBtn.type = 'button';
@@ -2030,11 +2044,22 @@
     });
     viewEl.appendChild(searchBtn);
 
+    // مجموعة الملفات: شجرة القسم المختار (catPid) أو كل الحصري إن لم يُختر
+    var scopeFiles = all;
+    if (topView.catPid !== undefined && topView.catPid !== null) {
+      var scopeIds = {};
+      (function collect(id) {
+        scopeIds[id] = true;
+        childrenOf(id).forEach(function (s) { collect(s.id); });
+      })(topView.catPid);
+      scopeFiles = all.filter(function (f) { return scopeIds[f.c]; });
+    }
+
     // فلتر المستويات داخل الحصري (محلي — لا يلوث فلاتر التصفح العامة)
     var view = topView;
     if (view.lv === undefined) view.lv = '';
     var lvSeen = {};
-    all.forEach(function (f) { if (f.lv) lvSeen[f.lv] = true; });
+    scopeFiles.forEach(function (f) { if (f.lv) lvSeen[f.lv] = true; });
     var lvs = Object.keys(lvSeen).sort(function (a, b) { return levelRank(a) - levelRank(b); });
     if (lvs.length > 1) {
       var lvRow = el('div', 'chipbar');
@@ -2051,7 +2076,7 @@
       viewEl.appendChild(lvRow);
     }
 
-    var files = all.filter(function (f) { return !view.lv || f.lv === view.lv; })
+    var files = scopeFiles.filter(function (f) { return !view.lv || f.lv === view.lv; })
       .sort(function (a, b) { return b.id - a.id; });
 
     viewEl.appendChild(sectionTitle(isVip
@@ -2069,66 +2094,109 @@
       : 'الفتح والقراءة يتطلبان اشتراكاً نشطاً — التصفح مجاني للاطلاع.'));
   }
 
-  /* ─── تصفح سلسلة VIP: نفس ترتيب وهرمية البوت ───
-     البوت يعرض: الأقسام الرئيسية أولاً → عند الضغط يدخل الفرعية → ثم الملفات.
-     هنا نفس النموذج داخل المحتوى الحصري، والمعاينة (أسماء الملفات) للجميع. */
+  /* ─── تصفح سلسلة VIP: نفس شجرة المكتبة تماماً — لا شجرة منفصلة ───
+     نفس نمط vipcat_ في البوت: نتنقل في شجرة الأقسام العادية نفسها
+     (نفس المصدر ونفس علاقات الأب/الابن) ونعرض فقط العقد التي تحتوي
+     محتوى VIP في شجرتها، مع مسار القسم للسياق. */
 
-  // ترتيب البوت: sort_order ثم الاسم (so من categories.json)
+  // ترتيب البوت: sort_order (so) ثم الاسم
   function catSort(a, b) {
     var sa = typeof a.so === 'number' ? a.so : 0;
     var sb = typeof b.so === 'number' ? b.so : 0;
     return sa !== sb ? sa - sb : a.name.localeCompare(b.name, 'ar');
   }
 
-  /* جدران شجرة VIP: أقسام مقفلة بلا أب مقفل فوقها — تُعرض كأقسام حصرية */
-  function vipLockedRoots() {
-    var byId = {};
-    state.cats.forEach(function (c) { byId[c.id] = c; });
-    return state.cats.filter(function (c) {
-      if (!c.locked) return false;
-      var p = byId[c.parent];
-      return !(p && p.locked);
-    });
+  // هل تحتوي شجرة هذا القسم أي ملف VIP (مباشراً أو في أي عمق)؟
+  function hasVipInSubtree(catId, seen) {
+    if (!catId) return false;
+    seen = seen || {};
+    if (seen[catId]) return false;
+    seen[catId] = true;
+    if (state.files.some(function (f) { return f.r === 'vip' && f.c === catId; })) return true;
+    return childrenOf(catId).some(function (s) { return hasVipInSubtree(s.id, seen); });
   }
 
-  // عدد ملفات الشجرة الفرعية (مباشرة + متداخلة) — للعرض على بطاقة القسم
-  function subtreeFileCount(catId) {
-    var n = state.files.filter(function (f) { return f.c === catId; }).length;
-    childrenOf(catId).forEach(function (s) { n += subtreeFileCount(s.id); });
+  // مسار القسم من الجذر حتى الأب المباشر — «فروض ← المستوى السادس ← …»
+  function catContextPath(cat) {
+    var names = [];
+    var cur = catById(cat.parent);
+    var guard = 0;
+    while (cur && guard++ < 20) {
+      names.unshift(cur.name);
+      cur = cur.parent === null ? null : catById(cur.parent);
+    }
+    return names.join(' ← ');
+  }
+
+  // عدد ملفات VIP في شجرة القسم (مباشرة + متداخلة)
+  function vipCountInSubtree(catId, seen) {
+    seen = seen || {};
+    if (seen[catId]) return 0;
+    seen[catId] = true;
+    var n = state.files.filter(function (f) { return f.r === 'vip' && f.c === catId; }).length;
+    childrenOf(catId).forEach(function (s) { n += vipCountInSubtree(s.id, seen); });
     return n;
   }
 
-  /* تبويب «الأقسام الحصرية» — نفس شجرة البوت (رئيسي → فرعي → ملفات):
-     الجذور الحصرية بترتيب البوت، والدخول يفتح شجرة القسم عبر renderCat
-     حيث تظهر الأقسام الفرعية ثم أسماء الملفات — الفتح خلف الاشتراك. */
+  /* تبويب «الأقسام الحصرية» — نفس شجرة المكتبة مع فلتر VIP (كما vipcat في
+     البوت): نبدأ من جذر شجرة الأقسام نفسها ونعرض الأبناء المحتويين VIP
+     بمسارهم الكامل؛ الدخول ينزل في نفس الشجرة حتى تظهر أسماء الملفات. */
   function renderVipCatsTab(isVip) {
-    var roots = vipLockedRoots();
-    if (!roots.length) {
-      viewEl.appendChild(emptyBox('لا توجد أقسام حصرية بعد.', 'gem'));
+    // التنقل داخل تبويب الأقسام: catPid محفوظ في الـ view (بلا قفل دخول مسبق)
+    var topView = state.stack[state.stack.length - 1];
+    if (topView.catPid === undefined) topView.catPid = null;
+
+    var kids = childrenOf(topView.catPid)
+      .filter(function (c) { return hasVipInSubtree(c.id); })
+      .sort(catSort);
+
+    viewEl.appendChild(sectionTitle(topView.catPid === null
+      ? '📂 الأقسام الحصرية — كما في البوت'
+      : '📂 ' + (catById(topView.catPid) || {}).name));
+
+    if (!kids.length) {
+      viewEl.appendChild(emptyBox('لا توجد أقسام حصرية هنا.', 'gem'));
       return;
     }
-    roots.sort(catSort);
-    viewEl.appendChild(sectionTitle('📂 الأقسام الحصرية (' + roots.length + ')'));
-    roots.forEach(function (c) {
-      var count = subtreeFileCount(c.id);
+    kids.forEach(function (c) {
+      var count = vipCountInSubtree(c.id);
       var card = el('button', 'card vip-cat-card');
       card.type = 'button';
-      var ic = el('div', 'icon', c.icon || '💎');
+      var ic = el('div', 'icon', c.icon || (c.locked ? '🔒' : '💎'));
       card.appendChild(ic);
-      card.appendChild(el('div', 'label', c.name));
+      var info = el('div', 'vip-cat-info');
+      info.appendChild(el('div', 'label', c.name));
+      var ctx = catContextPath(c);
+      if (ctx) info.appendChild(el('div', 'vip-cat-path', ctx));
+      card.appendChild(info);
       var meta = el('div', 'meta');
-      meta.appendChild(el('span', 'badge', count + ' ملف'));
+      meta.appendChild(el('span', 'badge', count + ' VIP'));
       meta.appendChild(isVip ? chevEl() : svgIcon('lock', 14));
       card.appendChild(meta);
       card.addEventListener('click', function () {
         haptic('light');
-        push({ type: 'cat', id: c.id });
+        topView.catPid = c.id;
+        render();
       });
       viewEl.appendChild(card);
     });
-    if (!isVip) {
+
+    // زر رجوع داخل الشجرة (المسار يظهر كسياق فوق كل بطاقة)
+    if (topView.catPid !== null) {
+      var backBtn = el('button', 'secondary-btn');
+      backBtn.type = 'button';
+      backBtn.appendChild(svgIcon('chevLeft', 14));
+      backBtn.appendChild(el('span', null, 'رجوع'));
+      backBtn.addEventListener('click', function () {
+        haptic();
+        var parent = catById(topView.catPid);
+        topView.catPid = parent ? parent.parent : null;
+        render();
+      });
+      viewEl.appendChild(backBtn);
+    } else if (!isVip) {
       viewEl.appendChild(el('div', 'detail-note',
-        '🔒 تصفّح الأقسام ومعاينة أسماء الملفات مجاني — فتح الملفات يتطلب اشتراك EscuilaVIP.'));
+        '🔒 التنقل في نفس شجرة الأقسام ومعاينة الأسماء مجاني — فتح الملفات يتطلب اشتراك EscuilaVIP.'));
     }
   }
 
