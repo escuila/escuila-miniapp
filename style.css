@@ -1362,6 +1362,14 @@ body.dark .account-card .icon { color: #fbbf24; }
 }
 .vip-renew-banner:active { transform: scale(0.985); }
 
+/* ─── شبكة الحصري لغير المشتركين: مرئية لكن معتمة قليلاً مع شارة قفل ─── */
+.vip-locked-grid { position: relative; }
+.vip-locked-grid .gcard .cover {
+  filter: saturate(0.75);
+}
+.vip-locked-grid .gcard .chip-vip::before { content: '🔒 '; font-size: 11px; }
+.vip-locked-grid .gcard:active { transform: none; }
+
 /* ─── زر فتح VIP المباشر (للمشتركين) ─── */
 .vip-open-btn {
   background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%);
