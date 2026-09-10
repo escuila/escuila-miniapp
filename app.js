@@ -260,7 +260,13 @@
   /* ─── data layer ─── */
 
   function childrenOf(parentId) {
-    return state.cats.filter(function (c) { return c.parent === parentId; });
+    // ترتيب البوت: sort_order (so) ثم الاسم — نفس get_categories_keyboard
+    return state.cats.filter(function (c) { return c.parent === parentId; })
+      .sort(function (a, b) {
+        var sa = typeof a.so === 'number' ? a.so : 0;
+        var sb = typeof b.so === 'number' ? b.so : 0;
+        return sa !== sb ? sa - sb : a.name.localeCompare(b.name, 'ar');
+      });
   }
 
   function catById(id) {
@@ -474,31 +480,9 @@
   }
 
   /* ─── VIP subscription flows ───
-     openVipSubscribe: مسار واحد لكل أزرار الاشتراك — الدفع داخل التطبيق
-     (openInvoice عبر رابط من الخادم) عند توفره، وإلا رابط عميق start=vip
-     الذي يفتح شاشة الاشتراك الموحدة في البوت مباشرة (لا رابط فارغ). */
-
-  // دعوة الأصدقاء: نفس نظام إحالة البوت (start=ref_<id> → +50 نقطة للمُحيل
-  // تلقائياً) — بلا أي backend جديد. يعمل حتى بلا جلسة (الرابط لا يكشف سراً).
-  function openShareApp() {
-    haptic('light');
-    var uid = state.me && state.me.id;
-    if (!uid) {
-      showToast('افتح التطبيق من البوت أولاً لتحصل على رابط الدعوة الخاص بك');
-      return;
-    }
-    var url = 'https://t.me/' + state.botUsername + '?start=ref_' + uid;
-    var text = '📚 بوت Escuila — ملفات وتمارين لجميع المستويات، مجاناً!\n' +
-      'افتح الآن واحصل على مكتبة كاملة بين يديك ⬇️';
-    if (navigator.share) {
-      navigator.share({ title: 'Escuila 📚', text: text, url: url })
-        .catch(function () { /* user cancelled */ });
-    } else {
-      copyText(text + '\n' + url);
-      showToast('تم نسخ رابط الدعوة — شاركه واربح +50 نقطة لكل صديق');
-    }
-  }
-
+     openVipSubscribe: الدفع بالنجوم داخل التطبيق (openInvoice عبر رابط من
+     الخادم) عند توفره، وإلا رابط عميق start=vip الذي يفتح شاشة الاشتراك
+     الموحدة في البوت مباشرة (لا رابط فارغ). */
   function openVipSubscribe() {
     haptic('light');
     if (!state.api || !tg || !tg.initData || typeof tg.openInvoice !== 'function') {
@@ -1099,20 +1083,6 @@
 
     // ─── VIP أولاً: أول ما يراه الزائر الجديد بعد بطاقة حسابه ───
     buildVipHomeSection();
-
-    // دعوة الأصدقاء — +50 نقطة لكل صديق عبر نظام إحالة البوت (تحت VIP مباشرة)
-    var invite = el('button', 'card invite-card');
-    invite.type = 'button';
-    var invIc = el('div', 'icon');
-    invIc.appendChild(svgIcon('users', 20));
-    invite.appendChild(invIc);
-    var invInfo = el('div', 'fcard-info');
-    invInfo.appendChild(el('div', 'fcard-name', '🎁 ادعُ أصدقاءك واربح النقاط'));
-    invInfo.appendChild(el('div', 'fcard-meta', '+50 نقطة لكل صديق ينضم عبر رابطك'));
-    invite.appendChild(invInfo);
-    invite.appendChild(chevEl());
-    invite.addEventListener('click', openShareApp);
-    viewEl.appendChild(invite);
 
     // فئات سريعة (قيم حقيقية)
     var levels = chipRow('حسب المستوى', levelValues(), function (lv) {
@@ -1802,9 +1772,9 @@
           openLive.disabled = false;
           openLive.querySelector('span').textContent = '▶ اقرأ الآن';
           if (e.code === 'vip_required') {
-            // الخادم أكّد أن المستخدم غير مشترك — حدّث الحالة المحلية واعرض البوابة
+            // الخادم أكّد أن المستخدم غير مشترك — حدّث الحالة واعرض شاشة الاشتراك
             if (state.me) { state.me.vip = false; }
-            push({ type: 'vipFiles' });
+            push({ type: 'vip' });
           } else {
             showToast(apiErrMsg(e, 'تعذر الوصول لخادم ESCUILA — جارٍ فتح البوت…'));
             setTimeout(function () { openInBot(f); }, 700);
@@ -1902,29 +1872,42 @@
     viewEl.appendChild(feats);
 
     var prices = el('div', 'price-row');
-    // بطاقة السعر الوحيدة: نجوم تيليجرام (الدفع اليدوي أُزيل بطلب المالك —
-    // مسار واحد واضح يحسم القرار أسرع)
-    var pc = el('div', 'price-card price-star price-card-wide');
-    var pl1 = el('div', 'price-label');
-    pl1.appendChild(svgIcon('star', 16));
-    pl1.appendChild(el('span', null, 'نجوم تيليجرام'));
-    pc.appendChild(pl1);
-    pc.appendChild(el('div', 'price-value', state.starsPrice > 0 ? state.starsPrice + ' ⭐' : '—'));
-    pc.appendChild(el('div', 'price-note', 'دفع فوري داخل التطبيق — بدون بطاقة بنكية'));
-    prices.appendChild(pc);
+    // الدفع اليدوي أولاً (الوسيلة الأساسية) — النجوم خيار لمن يستعملها
+    if (state.madPrice > 0) {
+      var pm = el('div', 'price-card price-card-wide price-card-main');
+      var pl2 = el('div', 'price-label');
+      pl2.appendChild(svgIcon('card', 16));
+      pl2.appendChild(el('span', null, 'تحويل بنكي · CCP · PayPal'));
+      pm.appendChild(pl2);
+      pm.appendChild(el('div', 'price-value', state.madPrice + ' د.م'));
+      pm.appendChild(el('div', 'price-note', 'الوسيلة الأساسية — تفعيل بعد تأكيد الإدارة'));
+      pm.addEventListener('click', function () { haptic('light'); openBotChat('vip_request'); });
+      prices.appendChild(pm);
+    }
+    if (state.starsPrice > 0) {
+      var pc = el('div', 'price-card price-card-wide price-star');
+      var pl1 = el('div', 'price-label');
+      pl1.appendChild(svgIcon('star', 16));
+      pl1.appendChild(el('span', null, 'نجوم تيليجرام'));
+      pc.appendChild(pl1);
+      pc.appendChild(el('div', 'price-value', state.starsPrice + ' ⭐'));
+      pc.appendChild(el('div', 'price-note', 'خيار إضافي — فوري وتلقائي'));
+      prices.appendChild(pc);
+    }
     viewEl.appendChild(prices);
 
+    // الزر الرئيسي = الوسيلة الأساسية: طلب اشتراك يدوي في البوت
     var cta = el('button', 'primary-btn vip-cta');
     cta.type = 'button';
-    cta.appendChild(svgIcon('zap', 17));
+    cta.appendChild(svgIcon('card', 17));
     var isSubscriber = !!(state.me && state.me.vip);
     var isExpired = !!(state.me && state.me.expired);
-    cta.appendChild(el('span', null, state.starsPrice > 0
-      ? (isSubscriber ? 'تجديد الاشتراك — ' + state.starsPrice + ' ⭐'
-                      : (isExpired ? 'جدّد الاشتراك — ' + state.starsPrice + ' ⭐'
-                                   : 'اشترك الآن — ' + state.starsPrice + ' ⭐'))
-      : (isExpired ? 'جدّد الاشتراك عبر البوت' : 'اشترك بالنجوم عبر البوت')));
-    cta.addEventListener('click', openVipSubscribe);
+    cta.appendChild(el('span', null, isSubscriber
+      ? 'تجديد الاشتراك — ' + (state.madPrice > 0 ? state.madPrice + ' د.م' : 'عبر البوت')
+      : (isExpired
+        ? 'جدّد الاشتراك — ' + (state.madPrice > 0 ? state.madPrice + ' د.م' : 'عبر البوت')
+        : 'اطلب الاشتراك الآن' + (state.madPrice > 0 ? ' — ' + state.madPrice + ' د.م' : ''))));
+    cta.addEventListener('click', function () { haptic('light'); openBotChat('vip_request'); });
     viewEl.appendChild(cta);
     viewEl.appendChild(el('div', 'vip-cta-note',
       'التفعيل فوري تلقائياً بعد الدفع داخل تيليجرام'));
@@ -1939,14 +1922,16 @@
       b.addEventListener('click', fn);
       return b;
     }
-    opts.appendChild(vipOpt('users', '🎁 ادعُ صديقاً — +50 نقطة لكل منكما', function () { openShareApp(); }));
+    if (state.starsPrice > 0) {
+      opts.appendChild(vipOpt('star', 'الدفع بالنجوم — ' + state.starsPrice + ' ⭐ (فوري)', openVipSubscribe));
+    }
+    opts.appendChild(vipOpt('chat', 'تواصل مع الإدارة', function () { openBotChat('vip_request'); }));
     opts.appendChild(vipOpt('ticket', 'لدي كود اشتراك', function () { openBotChat('vip'); }));
     viewEl.appendChild(opts);
 
-    // زر تيليجرام الأصلي = الدعوة الأساسية أثناء وجود المستخدم في شاشة VIP
-    setMainButton(state.starsPrice > 0
-      ? 'اشترك الآن — ' + state.starsPrice + ' ⭐'
-      : 'الاشتراك عبر البوت', openVipSubscribe);
+    // زر تيليجرام الأصلي = نفس مسار الزر الرئيسي (طلب يدوي)
+    setMainButton('اطلب الاشتراك — ' + (state.madPrice > 0 ? state.madPrice + ' د.م' : 'عبر البوت'),
+      function () { openBotChat('vip_request'); });
 
     var note = el('div', 'vip-note');
     note.appendChild(svgIcon('lock', 13));
@@ -2084,6 +2069,17 @@
       : 'الفتح والقراءة يتطلبان اشتراكاً نشطاً — التصفح مجاني للاطلاع.'));
   }
 
+  /* ─── تصفح سلسلة VIP: نفس ترتيب وهرمية البوت ───
+     البوت يعرض: الأقسام الرئيسية أولاً → عند الضغط يدخل الفرعية → ثم الملفات.
+     هنا نفس النموذج داخل المحتوى الحصري، والمعاينة (أسماء الملفات) للجميع. */
+
+  // ترتيب البوت: sort_order ثم الاسم (so من categories.json)
+  function catSort(a, b) {
+    var sa = typeof a.so === 'number' ? a.so : 0;
+    var sb = typeof b.so === 'number' ? b.so : 0;
+    return sa !== sb ? sa - sb : a.name.localeCompare(b.name, 'ar');
+  }
+
   /* جدران شجرة VIP: أقسام مقفلة بلا أب مقفل فوقها — تُعرض كأقسام حصرية */
   function vipLockedRoots() {
     var byId = {};
@@ -2102,16 +2098,16 @@
     return n;
   }
 
-  /* تبويب «الأقسام الحصرية» — نفس شجرة الأقسام المقفلة في البوت:
-     لكل جذر VIP بطاقة (أيقونة + اسم + عدّاد ملفات الشجرة) تدخل شجرة قسامه،
-     مع بوابة واضحة لغير المشتركين داخل كل قسم. */
+  /* تبويب «الأقسام الحصرية» — نفس شجرة البوت (رئيسي → فرعي → ملفات):
+     الجذور الحصرية بترتيب البوت، والدخول يفتح شجرة القسم عبر renderCat
+     حيث تظهر الأقسام الفرعية ثم أسماء الملفات — الفتح خلف الاشتراك. */
   function renderVipCatsTab(isVip) {
     var roots = vipLockedRoots();
     if (!roots.length) {
       viewEl.appendChild(emptyBox('لا توجد أقسام حصرية بعد.', 'gem'));
       return;
     }
-    roots.sort(function (a, b) { return subtreeFileCount(b.id) - subtreeFileCount(a.id); });
+    roots.sort(catSort);
     viewEl.appendChild(sectionTitle('📂 الأقسام الحصرية (' + roots.length + ')'));
     roots.forEach(function (c) {
       var count = subtreeFileCount(c.id);
@@ -2126,13 +2122,13 @@
       card.appendChild(meta);
       card.addEventListener('click', function () {
         haptic('light');
-        push({ type: 'cat', id: c.id, vipGate: !isVip });
+        push({ type: 'cat', id: c.id });
       });
       viewEl.appendChild(card);
     });
     if (!isVip) {
       viewEl.appendChild(el('div', 'detail-note',
-        '🔒 تصفّح بنية الأقسام الحصرية مجاني — فتح الملفات يتطلب اشتراك EscuilaVIP.'));
+        '🔒 تصفّح الأقسام ومعاينة أسماء الملفات مجاني — فتح الملفات يتطلب اشتراك EscuilaVIP.'));
     }
   }
 
