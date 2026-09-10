@@ -477,6 +477,28 @@
      openVipSubscribe: مسار واحد لكل أزرار الاشتراك — الدفع داخل التطبيق
      (openInvoice عبر رابط من الخادم) عند توفره، وإلا رابط عميق start=vip
      الذي يفتح شاشة الاشتراك الموحدة في البوت مباشرة (لا رابط فارغ). */
+
+  // دعوة الأصدقاء: نفس نظام إحالة البوت (start=ref_<id> → +50 نقطة للمُحيل
+  // تلقائياً) — بلا أي backend جديد. يعمل حتى بلا جلسة (الرابط لا يكشف سراً).
+  function openShareApp() {
+    haptic('light');
+    var uid = state.me && state.me.id;
+    if (!uid) {
+      showToast('افتح التطبيق من البوت أولاً لتحصل على رابط الدعوة الخاص بك');
+      return;
+    }
+    var url = 'https://t.me/' + state.botUsername + '?start=ref_' + uid;
+    var text = '📚 بوت Escuila — ملفات وتمارين لجميع المستويات، مجاناً!\n' +
+      'افتح الآن واحصل على مكتبة كاملة بين يديك ⬇️';
+    if (navigator.share) {
+      navigator.share({ title: 'Escuila 📚', text: text, url: url })
+        .catch(function () { /* user cancelled */ });
+    } else {
+      copyText(text + '\n' + url);
+      showToast('تم نسخ رابط الدعوة — شاركه واربح +50 نقطة لكل صديق');
+    }
+  }
+
   function openVipSubscribe() {
     haptic('light');
     if (!state.api || !tg || !tg.initData || typeof tg.openInvoice !== 'function') {
@@ -1007,6 +1029,42 @@
 
   /* ─── home tab ─── */
 
+  // قسم VIP في الرئيسية — أعلى الصفحة ليكون أول ما يراه الزائر الجديد.
+  // يظهر دائماً للجميع: مشترك → ملفاته مباشرة · غير مشترك → بوابة جذابة.
+  function buildVipHomeSection() {
+    var vipAllFiles = state.files.filter(function (f) { return f.r === 'vip'; });
+    if (!vipAllFiles.length && !state.cats.some(function (c) { return c.locked; })) return;
+
+    if (state.me && state.me.vip) {
+      var vipFiles = vipAllFiles.slice(0, 8);
+      if (vipFiles.length) {
+        viewEl.appendChild(hScrollRow('💎 محتواك الحصري', vipFiles, function () {
+          push({ type: 'vipFiles' });
+        }));
+      }
+      return;
+    }
+
+    var isExpired = !!(state.me && state.me.expired);
+    var wrap = el('button', 'vip-banner vip-hero-banner');
+    wrap.type = 'button';
+    var vg = el('div', 'vip-icon');
+    vg.appendChild(svgIcon(isExpired ? 'refresh' : 'gem', 24));
+    wrap.appendChild(vg);
+    var vinfo = el('div', 'vip-info');
+    vinfo.appendChild(el('div', 'vip-title', isExpired
+      ? '⚠️ انتهى اشتراكك في EscuilaVIP'
+      : '💎 المحتوى الحصري'));
+    vinfo.appendChild(el('div', 'vip-sub', isExpired
+      ? 'جدّد الآن لاستعادة ' + vipAllFiles.length + ' ملفاً حصرياً'
+      : vipAllFiles.length + ' ملفاً حصرياً + أقسام كاملة — اشترك وافتحها الآن'));
+    wrap.appendChild(vinfo);
+    var vbtn = el('span', 'vip-cta-chip', isExpired ? 'تجديد' : 'اشترك');
+    wrap.appendChild(vbtn);
+    wrap.addEventListener('click', function () { haptic('light'); push({ type: 'vipFiles' }); });
+    viewEl.appendChild(wrap);
+  }
+
   function renderHome() {
     viewEl.innerHTML = '';
 
@@ -1038,6 +1096,23 @@
       });
       viewEl.appendChild(acc);
     }
+
+    // ─── VIP أولاً: أول ما يراه الزائر الجديد بعد بطاقة حسابه ───
+    buildVipHomeSection();
+
+    // دعوة الأصدقاء — +50 نقطة لكل صديق عبر نظام إحالة البوت (تحت VIP مباشرة)
+    var invite = el('button', 'card invite-card');
+    invite.type = 'button';
+    var invIc = el('div', 'icon');
+    invIc.appendChild(svgIcon('users', 20));
+    invite.appendChild(invIc);
+    var invInfo = el('div', 'fcard-info');
+    invInfo.appendChild(el('div', 'fcard-name', '🎁 ادعُ أصدقاءك واربح النقاط'));
+    invInfo.appendChild(el('div', 'fcard-meta', '+50 نقطة لكل صديق ينضم عبر رابطك'));
+    invite.appendChild(invInfo);
+    invite.appendChild(chevEl());
+    invite.addEventListener('click', openShareApp);
+    viewEl.appendChild(invite);
 
     // فئات سريعة (قيم حقيقية)
     var levels = chipRow('حسب المستوى', levelValues(), function (lv) {
@@ -1092,41 +1167,6 @@
 
     var reco = recommendedFiles(6);
     if (reco.length) viewEl.appendChild(hScrollRow('مقترح لك', reco));
-
-    // ─── قسم VIP ─── يظهر دائماً للجميع (مشترك: ملفاته · غير مشترك: بوابة)
-    // ملاحظة: بلا اتصال لا نعرف الحالة — نفترض غير مشترك، والفتح يفصل لاحقاً
-    var vipAllFiles = state.files.filter(function (f) { return f.r === 'vip'; });
-    if (state.me && state.me.vip) {
-      // المشترك: عرض ملفاته الحصرية مباشرة + قسم مخصص قابل للتصفح
-      var vipFiles = vipAllFiles.slice(0, 8);
-      if (vipFiles.length) {
-        viewEl.appendChild(hScrollRow('💎 محتواك الحصري', vipFiles, function () {
-          push({ type: 'vipFiles' });
-        }));
-      }
-    } else {
-      // غير مشترك (أو بلا جلسة بعد): بوابة + عدّاد — القسم ظاهر دائماً
-      if (vipAllFiles.length || state.cats.some(function (c) { return c.locked; })) {
-        var isExpired = !!(state.me && state.me.expired);
-        var vipCard = el('button', 'vip-banner');
-        vipCard.type = 'button';
-        var vg = el('div', 'vip-icon');
-        vg.appendChild(svgIcon(isExpired ? 'refresh' : 'gem', 24));
-        vipCard.appendChild(vg);
-        var vinfo = el('div', 'vip-info');
-        if (isExpired) {
-          vinfo.appendChild(el('div', 'vip-title', 'انتهى اشتراكك في EscuilaVIP'));
-          vinfo.appendChild(el('div', 'vip-sub', 'جدّد الآن لاستعادة ' + vipAllFiles.length + ' ملفاً حصرياً'));
-        } else {
-          vinfo.appendChild(el('div', 'vip-title', '💎 المحتوى الحصري'));
-          vinfo.appendChild(el('div', 'vip-sub', vipAllFiles.length + ' ملفاً حصرياً + أقسام كاملة — للمشتركين'));
-        }
-        vipCard.appendChild(vinfo);
-        vipCard.appendChild(chevEl());
-        vipCard.addEventListener('click', function () { haptic('light'); push({ type: 'vipFiles' }); });
-        viewEl.appendChild(vipCard);
-      }
-    }
 
     var allBtn = el('button', 'secondary-btn');
     allBtn.type = 'button';
@@ -1231,6 +1271,7 @@
     var subs = childrenOf(id);
     var files = filesIn(id);
     var cat = catById(id);
+    var isVipUser = !!(state.me && (state.me.vip || state.me.is_admin));
 
     viewEl.innerHTML = '';
 
@@ -1255,6 +1296,13 @@
       }
     }
 
+    // شارة القسم الحصري أعلى الشجرة
+    if (cat && cat.locked) {
+      viewEl.appendChild(el('div', 'detail-badge ' + (isVipUser ? 'badge-free' : 'badge-vip'),
+        isVipUser ? '💎 قسم حصري — اشتراكك مفعّل ✓'
+                  : '💎 قسم حصري — الفتح لمشتركي EscuilaVIP'));
+    }
+
     if (subs.length) {
       viewEl.appendChild(el('div', 'section-title', 'الأقسام الفرعية'));
       subs.forEach(function (s) { viewEl.appendChild(catCard(s)); });
@@ -1272,12 +1320,16 @@
         viewEl.appendChild(buildCatAccessBar(files));
       }
 
-      var list = el('div', 'fgrid');
+      var list = el('div', 'fgrid' + (cat && cat.locked && !isVipUser ? ' vip-locked-grid' : ''));
       fillFileList(list, files);
       viewEl.appendChild(list);
     }
     if (!subs.length && !files.length) {
       viewEl.appendChild(emptyBox('هذا القسم فارغ حالياً.<br>سيظهر المحتوى هنا فور إضافته من لوحة الإدارة.'));
+    }
+    if (cat && cat.locked && !(state.me && (state.me.vip || state.me.is_admin))) {
+      viewEl.appendChild(el('div', 'detail-note',
+        '🔒 الملفات في هذا القسم مقفلة — التصفح مجاني والفتح يتطلب اشتراك EscuilaVIP.'));
     }
   }
 
@@ -1849,30 +1901,18 @@
       });
     viewEl.appendChild(feats);
 
-    if (state.starsPrice > 0 || state.madPrice > 0) {
-      var prices = el('div', 'price-row');
-      if (state.starsPrice > 0) {
-        var pc = el('div', 'price-card price-star');
-        var pl1 = el('div', 'price-label');
-        pl1.appendChild(svgIcon('star', 13));
-        pl1.appendChild(el('span', null, 'نجوم تيليجرام'));
-        pc.appendChild(pl1);
-        pc.appendChild(el('div', 'price-value', state.starsPrice));
-        pc.appendChild(el('div', 'price-note', 'فوري وتلقائي'));
-        prices.appendChild(pc);
-      }
-      if (state.madPrice > 0) {
-        var pm = el('div', 'price-card');
-        var pl2 = el('div', 'price-label');
-        pl2.appendChild(svgIcon('card', 13));
-        pl2.appendChild(el('span', null, 'دفع يدوي'));
-        pm.appendChild(pl2);
-        pm.appendChild(el('div', 'price-value', state.madPrice + ' د.م'));
-        pm.appendChild(el('div', 'price-note', 'CCP · PayPal'));
-        prices.appendChild(pm);
-      }
-      viewEl.appendChild(prices);
-    }
+    var prices = el('div', 'price-row');
+    // بطاقة السعر الوحيدة: نجوم تيليجرام (الدفع اليدوي أُزيل بطلب المالك —
+    // مسار واحد واضح يحسم القرار أسرع)
+    var pc = el('div', 'price-card price-star price-card-wide');
+    var pl1 = el('div', 'price-label');
+    pl1.appendChild(svgIcon('star', 16));
+    pl1.appendChild(el('span', null, 'نجوم تيليجرام'));
+    pc.appendChild(pl1);
+    pc.appendChild(el('div', 'price-value', state.starsPrice > 0 ? state.starsPrice + ' ⭐' : '—'));
+    pc.appendChild(el('div', 'price-note', 'دفع فوري داخل التطبيق — بدون بطاقة بنكية'));
+    prices.appendChild(pc);
+    viewEl.appendChild(prices);
 
     var cta = el('button', 'primary-btn vip-cta');
     cta.type = 'button';
@@ -1899,9 +1939,8 @@
       b.addEventListener('click', fn);
       return b;
     }
-    opts.appendChild(vipOpt('card', 'CCP / PayPal — طلب يدوي', function () { openBotChat('vip_request'); }));
+    opts.appendChild(vipOpt('users', '🎁 ادعُ صديقاً — +50 نقطة لكل منكما', function () { openShareApp(); }));
     opts.appendChild(vipOpt('ticket', 'لدي كود اشتراك', function () { openBotChat('vip'); }));
-    opts.appendChild(vipOpt('chat', 'تواصل مع الإدارة', function () { openBotChat('vip_request'); }));
     viewEl.appendChild(opts);
 
     // زر تيليجرام الأصلي = الدعوة الأساسية أثناء وجود المستخدم في شاشة VIP
@@ -1936,7 +1975,7 @@
     gem.appendChild(svgIcon('gem', 26));
     head.appendChild(gem);
     head.appendChild(el('div', 'detail-name', 'المحتوى الحصري'));
-    head.appendChild(el('div', 'vip-tag', all.length + ' ملفاً حصرياً — نفس مكتبة VIP في البوت'));
+    head.appendChild(el('div', 'vip-tag', all.length + ' ملفاً حصرياً · ' + vipLockedRoots().length + ' قسماً كاملاً'));
     viewEl.appendChild(head);
 
     if (isVip) {
@@ -1971,6 +2010,29 @@
       setMainButton(subBtn.querySelector('span').textContent, openVipSubscribe);
     }
 
+    // ─── تبويبات القسم: الأقسام الحصرية (كما في البوت) · أحدث الملفات ───
+    var topView = state.stack[state.stack.length - 1];
+    if (topView.sub === undefined) topView.sub = 'cats';
+    var tabs = el('div', 'chipbar vip-subtabs');
+    [['cats', '📂 الأقسام الحصرية'], ['files', '🔥 أحدث الملفات']].forEach(function (t) {
+      var tab = el('button', 'fchip' + (topView.sub === t[0] ? ' on' : ''), t[1]);
+      tab.type = 'button';
+      tab.addEventListener('click', function () {
+        if (topView.sub === t[0]) return;
+        haptic();
+        topView.sub = t[0];
+        topView.lv = '';
+        render();
+      });
+      tabs.appendChild(tab);
+    });
+    viewEl.appendChild(tabs);
+
+    if (topView.sub === 'cats') {
+      renderVipCatsTab(isVip);
+      return;
+    }
+
     // بحث داخل الحصري فقط (شاشة البحث تصبح حصرية بفلتر الوصول)
     var searchBtn = el('button', 'secondary-btn');
     searchBtn.type = 'button';
@@ -1984,7 +2046,7 @@
     viewEl.appendChild(searchBtn);
 
     // فلتر المستويات داخل الحصري (محلي — لا يلوث فلاتر التصفح العامة)
-    var view = state.stack[state.stack.length - 1];
+    var view = topView;
     if (view.lv === undefined) view.lv = '';
     var lvSeen = {};
     all.forEach(function (f) { if (f.lv) lvSeen[f.lv] = true; });
@@ -2020,6 +2082,58 @@
     viewEl.appendChild(el('div', 'detail-note vip-active-note', isVip
       ? '✓ تُفتح الملفات بتحقق مباشر من خادم ESCUILA — دون المرور بالبوت.'
       : 'الفتح والقراءة يتطلبان اشتراكاً نشطاً — التصفح مجاني للاطلاع.'));
+  }
+
+  /* جدران شجرة VIP: أقسام مقفلة بلا أب مقفل فوقها — تُعرض كأقسام حصرية */
+  function vipLockedRoots() {
+    var byId = {};
+    state.cats.forEach(function (c) { byId[c.id] = c; });
+    return state.cats.filter(function (c) {
+      if (!c.locked) return false;
+      var p = byId[c.parent];
+      return !(p && p.locked);
+    });
+  }
+
+  // عدد ملفات الشجرة الفرعية (مباشرة + متداخلة) — للعرض على بطاقة القسم
+  function subtreeFileCount(catId) {
+    var n = state.files.filter(function (f) { return f.c === catId; }).length;
+    childrenOf(catId).forEach(function (s) { n += subtreeFileCount(s.id); });
+    return n;
+  }
+
+  /* تبويب «الأقسام الحصرية» — نفس شجرة الأقسام المقفلة في البوت:
+     لكل جذر VIP بطاقة (أيقونة + اسم + عدّاد ملفات الشجرة) تدخل شجرة قسامه،
+     مع بوابة واضحة لغير المشتركين داخل كل قسم. */
+  function renderVipCatsTab(isVip) {
+    var roots = vipLockedRoots();
+    if (!roots.length) {
+      viewEl.appendChild(emptyBox('لا توجد أقسام حصرية بعد.', 'gem'));
+      return;
+    }
+    roots.sort(function (a, b) { return subtreeFileCount(b.id) - subtreeFileCount(a.id); });
+    viewEl.appendChild(sectionTitle('📂 الأقسام الحصرية (' + roots.length + ')'));
+    roots.forEach(function (c) {
+      var count = subtreeFileCount(c.id);
+      var card = el('button', 'card vip-cat-card');
+      card.type = 'button';
+      var ic = el('div', 'icon', c.icon || '💎');
+      card.appendChild(ic);
+      card.appendChild(el('div', 'label', c.name));
+      var meta = el('div', 'meta');
+      meta.appendChild(el('span', 'badge', count + ' ملف'));
+      meta.appendChild(isVip ? chevEl() : svgIcon('lock', 14));
+      card.appendChild(meta);
+      card.addEventListener('click', function () {
+        haptic('light');
+        push({ type: 'cat', id: c.id, vipGate: !isVip });
+      });
+      viewEl.appendChild(card);
+    });
+    if (!isVip) {
+      viewEl.appendChild(el('div', 'detail-note',
+        '🔒 تصفّح بنية الأقسام الحصرية مجاني — فتح الملفات يتطلب اشتراك EscuilaVIP.'));
+    }
   }
 
   /* ─── admin panel (جلسة أدمن موثقة فقط) ─── */

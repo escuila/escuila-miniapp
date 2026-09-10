@@ -1362,6 +1362,40 @@ body.dark .account-card .icon { color: #fbbf24; }
 }
 .vip-renew-banner:active { transform: scale(0.985); }
 
+/* ─── بوابة VIP في أعلى الرئيسية ─── */
+.vip-hero-banner { margin: 10px 0 6px; }
+.vip-hero-banner .vip-title { font-size: 16px; }
+.vip-cta-chip {
+  flex-shrink: 0;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  border-radius: 999px;
+  padding: 6px 14px;
+}
+body.dark .vip-cta-chip { background: linear-gradient(135deg, #fbbf24, #d97706); }
+
+/* ─── بطاقة دعوة الأصدقاء ─── */
+.invite-card .icon { color: var(--link); }
+.invite-card .fcard-name { font-weight: 700; }
+
+/* ─── تبويبات داخل المحتوى الحصري ─── */
+.vip-subtabs { margin-bottom: 10px; }
+
+/* ─── بطاقات الأقسام الحصرية ─── */
+.vip-cat-card .icon { font-size: 22px; }
+
+/* ─── بطاقة سعر عريضة (نجوم فقط) ─── */
+.price-card-wide {
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 12px;
+}
+.price-card-wide .price-value { font-size: 24px; font-weight: 800; }
+.price-card-wide .price-label { justify-content: center; }
+
 /* ─── شبكة الحصري لغير المشتركين: مرئية لكن معتمة قليلاً مع شارة قفل ─── */
 .vip-locked-grid { position: relative; }
 .vip-locked-grid .gcard .cover {
