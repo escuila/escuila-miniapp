@@ -108,7 +108,8 @@
     users: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
     user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
     logs: '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>',
-    download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>'
+    download: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>',
+    externalLink: '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14 21 3"/>'
   };
 
   function svgIcon(name, size) {
@@ -1658,30 +1659,56 @@
     return crumb;
   }
 
-  function favShareRow(f) {
-    var row = el('div', 'btn-row');
+  /* شريط الأيقونات العلوي — نفس تصميم تطبيق APK: مفضلة + مشاركة + فتح
+     في المتصفح كأيقونات دائرية أعلى الشاشة بدل أزرار نصية أسفلها */
+  function topActionBar(f, opts) {
+    opts = opts || {};
+    var bar = el('div', 'topbar-actions');
 
-    var favB = el('button', 'secondary-btn' + (isFav(f.id) ? ' fav-on' : ''));
+    var favB = el('button', 'icon-btn icon-fav' + (isFav(f.id) ? ' on' : ''));
     favB.type = 'button';
-    favB.textContent = isFav(f.id) ? '★ في المفضلة' : '☆ أضف للمفضلة';
+    favB.setAttribute('aria-label', isFav(f.id) ? 'إزالة من المفضلة' : 'إضافة إلى المفضلة');
+    favB.appendChild(svgIcon('star', 19));
+    if (isFav(f.id)) favB.classList.add('star-filled');
     favB.addEventListener('click', function () {
       toggleFav(f.id);
-      render();
+      favB.classList.toggle('on');
+      favB.classList.toggle('star-filled');
     });
-    row.appendChild(favB);
+    bar.appendChild(favB);
 
-    var shareB = el('button', 'secondary-btn');
+    var shareB = el('button', 'icon-btn');
     shareB.type = 'button';
-    shareB.appendChild(svgIcon('share', 15));
-    shareB.appendChild(el('span', null, 'مشاركة'));
+    shareB.setAttribute('aria-label', 'مشاركة');
+    shareB.appendChild(svgIcon('share', 19));
     shareB.addEventListener('click', function () { shareFile(f); });
-    row.appendChild(shareB);
+    bar.appendChild(shareB);
 
-    return row;
+    // فتح في المتصفح — أيقونة علوية بدل زر أسفل الشاشة (تصميم APK)
+    if (opts.external && f.u) {
+      var extB = el('button', 'icon-btn');
+      extB.type = 'button';
+      extB.setAttribute('aria-label', 'فتح في المتصفح');
+      extB.appendChild(svgIcon('externalLink', 19));
+      extB.addEventListener('click', function () {
+        haptic('light');
+        try {
+          if (tg && tg.openLink) tg.openLink(f.u);
+          else window.open(f.u, '_blank');
+        } catch (e) { /* noop */ }
+      });
+      bar.appendChild(extB);
+    }
+
+    return bar;
   }
 
   function renderFileDetails(f) {
     viewEl.innerHTML = '';
+
+    // شريط الأيقونات العلوي (تصميم APK): مفضلة + مشاركة + فتح في المتصفح
+    var hasUrl = !!(f.u && /^https?:\/\//i.test(f.u));
+    viewEl.appendChild(topActionBar(f, { external: fileAccess(f) !== 'bot' && hasUrl }));
 
     var box = el('div', 'detail-box');
     box.appendChild(coverEl(f, false));
@@ -1702,13 +1729,13 @@
     // البادج — يختلف بحسب حالة المستخدم
     var badge;
     if (access === 'free') {
-      badge = ['detail-badge badge-free', '🟢 مجاني — يُقرأ داخل التطبيق'];
+      badge = ['detail-badge badge-free', '🟢 مجاني — متاح للقراءة'];
     } else if (access === 'vip') {
       badge = isVipUser
         ? ['detail-badge badge-free', '💎 محتوى حصري — اشتراكك مفعّل ✓']
         : ['detail-badge badge-vip', '🔒 حصري — محتوى EscuilaVIP'];
     } else {
-      badge = ['detail-badge badge-bot', '⚡ مجاني — تحميل مباشر أو عبر البوت'];
+      badge = ['detail-badge badge-bot', '⚡ مجاني — جاهز للتحميل'];
     }
     box.appendChild(el('div', badge[0], badge[1]));
 
@@ -1720,26 +1747,16 @@
       tgOpen.appendChild(el('span', null, 'فتح في تيليجرام'));
       tgOpen.addEventListener('click', function () { openTelegramUrl(f.u, true); });
       box.appendChild(tgOpen);
-      box.appendChild(favShareRow(f));
     } else if (access === 'free') {
       var read = el('button', 'primary-btn');
       read.type = 'button';
       read.appendChild(svgIcon('bookOpen', 17));
-      read.appendChild(el('span', null, 'قراءة داخل التطبيق'));
+      read.appendChild(el('span', null, 'قراءة'));
       read.addEventListener('click', function () {
         haptic('light');
         push({ type: 'viewer', file: f });
       });
       box.appendChild(read);
-
-      box.appendChild(favShareRow(f));
-
-      var inBot = el('button', 'secondary-btn');
-      inBot.type = 'button';
-      inBot.appendChild(svgIcon('chat', 16));
-      inBot.appendChild(el('span', null, 'عبر البوت'));
-      inBot.addEventListener('click', function () { openInBot(f); });
-      box.appendChild(inBot);
     } else if (access === 'vip') {
       // ─── ملف حصري: زر واحد للجميع — الخادم يفصل (مشترك → فتح، غيره → بوابة) ───
       var openLive = el('button', 'primary-btn vip-open-btn');
@@ -1784,21 +1801,11 @@
       });
       box.appendChild(openLive);
 
-      var inBotVip = el('button', 'secondary-btn');
-      inBotVip.type = 'button';
-      inBotVip.appendChild(svgIcon('chat', 16));
-      inBotVip.appendChild(el('span', null, 'عبر البوت'));
-      inBotVip.addEventListener('click', function () { openInBot(f); });
-      box.appendChild(inBotVip);
-
-      box.appendChild(favShareRow(f));
-
       box.appendChild(el('div', 'detail-note vip-active-note', isVipUser
-        ? '✓ تم التعرف على اشتراكك النشط — الفتح بتحقق مباشر من خادم ESCUILA.'
+        ? '✓ يتم التحقق من اشتراكك تلقائياً عند الفتح.'
         : '💎 هذا الملف ضمن المحتوى الحصري لمشتركي EscuilaVIP — فعّل اشتراكك وافتحه مباشرة من هنا.'));
     } else {
-      // ─── ملفات البوت: تحميل مباشر أولاً (رابط مؤقت من خادم ESCUILA)،
-      // والبوت يبقى خطة بديلة داخل نفس الشاشة ───
+      // ─── ملفات التحميل المباشر: زر واحد — والتحويل للبوت تلقائي عند الحاجة ───
       var dlBtn = el('button', 'primary-btn');
       dlBtn.type = 'button';
       dlBtn.appendChild(svgIcon('download', 17));
@@ -1809,17 +1816,8 @@
       });
       box.appendChild(dlBtn);
 
-      var botBtn = el('button', 'secondary-btn');
-      botBtn.type = 'button';
-      botBtn.appendChild(svgIcon('send', 17));
-      botBtn.appendChild(el('span', null, 'استلام الملف من البوت'));
-      botBtn.addEventListener('click', function () { openInBot(f); });
-      box.appendChild(botBtn);
-
-      box.appendChild(favShareRow(f));
-
       box.appendChild(el('div', 'detail-note',
-        'اضغط لتحميل الملف وفتحه مباشرة من المتصفح. إن تعذّر ذلك، سيتم توجيهك آلياً إلى المحادثة لاستلامه.'));
+        'اضغط للتحميل والفتح مباشرة. إن تعذّر ذلك، سيتم توجيهك آلياً لاستلامه.'));
     }
 
     viewEl.appendChild(box);
@@ -2461,15 +2459,40 @@
     viewEl.appendChild(box);
   }
 
-  /* ─── embedded viewer ─── */
+  /* ─── embedded viewer — تصميم APK: عنوان وأيقونات أعلى، بلا أزرار سفلية ─── */
 
   function renderViewer(f) {
     viewEl.innerHTML = '';
 
     var wrap = el('div', 'viewer-wrap');
 
+    // الشريط العلوي: العنوان + أيقونتا المفضلة والفتح في المتصفح (كما في APK)
     var bar = el('div', 'viewer-bar');
-    bar.appendChild(el('div', 'viewer-title', f.n));
+    var barTitle = el('div', 'viewer-title', f.n);
+    bar.appendChild(barTitle);
+    var barActions = el('div', 'viewer-bar-actions');
+
+    var favBtn = el('button', 'icon-btn icon-fav' + (isFav(f.id) ? ' on' : ''));
+    favBtn.type = 'button';
+    favBtn.setAttribute('aria-label', 'المفضلة');
+    favBtn.appendChild(svgIcon('star', 18));
+    if (isFav(f.id)) favBtn.classList.add('star-filled');
+    favBtn.addEventListener('click', function () {
+      toggleFav(f.id);
+      favBtn.classList.toggle('on');
+      favBtn.classList.toggle('star-filled');
+    });
+    barActions.appendChild(favBtn);
+
+    if (f.u && /^https?:\/\//i.test(f.u)) {
+      var extBtn = el('button', 'icon-btn');
+      extBtn.type = 'button';
+      extBtn.setAttribute('aria-label', 'فتح في المتصفح');
+      extBtn.appendChild(svgIcon('externalLink', 18));
+      extBtn.addEventListener('click', openExternal);
+      barActions.appendChild(extBtn);
+    }
+    bar.appendChild(barActions);
     wrap.appendChild(bar);
 
     var stage = el('div', 'viewer-stage');
@@ -2485,7 +2508,7 @@
       img.onload = function () { spinner.hidden = true; };
       img.onerror = function () {
         spinner.hidden = true;
-        hint.textContent = '⚠️ تعذّر تحميل الصورة — جرّب زر الفتح في المتصفح.';
+        hint.textContent = '⚠️ تعذّر تحميل الصورة — افتحها في المتصفح من الأيقونة بالأعلى.';
         hint.hidden = false;
       };
       img.src = f.u;
@@ -2496,47 +2519,28 @@
       frame.setAttribute('allow', 'autoplay; fullscreen');
       frame.referrerPolicy = 'no-referrer';
       // X-Frame-Options refusals are invisible to JS: onload may still fire,
-      // so the fallback buttons below stay visible in every case.
+      // so the top-bar open icon stays available in every case.
       frame.onload = function () { setTimeout(function () { spinner.hidden = true; }, 400); };
       frame.src = src;
       stage.appendChild(frame);
     } else {
       spinner.hidden = true;
       hint.hidden = false;
-      hint.textContent = '⚠️ تعذّر عرض هذا الملف داخل التطبيق — استخدم أزرار الفتح بالأسفل.';
+      hint.textContent = '⚠️ لا يمكن عرض هذا المحتوى هنا — افتحه في المتصفح من الأيقونة بالأعلى.';
     }
     wrap.appendChild(stage);
 
     var hint = el('div', 'viewer-hint',
-      'لا يظهر شيء؟ بعض المصادر تمنع العرض المدمج — استخدم الأزرار أدناه.');
+      'لا يظهر المحتوى كاملاً؟ افتحه في المتصفح من الأيقونة بالأعلى ⬆');
     hint.hidden = true;
     wrap.appendChild(hint);
 
-    var actions = el('div', 'viewer-actions');
-    var hasMain = !!(tg && tg.MainButton && tg.MainButton.setText);
-    if (!hasMain) {
-      // fallback: no native MainButton -> a single in-flow button
-      var inBrowser = el('button', 'primary-btn');
-      inBrowser.type = 'button';
-      inBrowser.appendChild(svgIcon('share', 16));
-      inBrowser.appendChild(el('span', null, 'فتح في المتصفح'));
-      inBrowser.addEventListener('click', openExternal);
-      actions.appendChild(inBrowser);
-    }
-
-    var inBot = el('button', 'secondary-btn');
-    inBot.type = 'button';
-    inBot.textContent = '🤖 عبر البوت';
-    inBot.addEventListener('click', function () { openInBot(f); });
-    actions.appendChild(inBot);
-    wrap.appendChild(actions);
-
     viewEl.appendChild(wrap);
 
-    // native MainButton = the one "open in browser" affordance in Telegram
-    setMainButton(hasMain ? 'فتح في المتصفح' : null, hasMain ? openExternal : null);
+    // لا MainButton داخل العارض — الفتح في المتصفح أصبح أيقونة علوية (تصميم APK)
+    setMainButton(null);
 
-    // slow-source nudge: after 6s point the user at the fallback buttons
+    // slow-source nudge: after 6s point the user at the top-bar icon
     setTimeout(function () {
       if (!spinner.hidden) {
         hint.hidden = false;

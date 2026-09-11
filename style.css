@@ -344,7 +344,46 @@ body.dark #logo { filter: brightness(0) invert(1); }
   height: calc(100dvh - 118px);
 }
 
-.viewer-bar { margin-bottom: 8px; }
+.viewer-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  min-height: 40px;
+}
+.viewer-bar .viewer-title { flex: 1; }
+.viewer-bar-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+/* ─── شريط الأيقونات العلوي (تصميم APK): مفضلة · مشاركة · فتح في المتصفح ─── */
+.topbar-actions {
+  display: flex;
+  justify-content: flex-start;
+  gap: 10px;
+  margin: 2px 0 10px;
+}
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(120, 120, 128, 0.12);
+  color: var(--link, #007aff);
+  border: none;
+  padding: 0;
+  flex-shrink: 0;
+  transition: transform var(--dur-fast) var(--ease), background 0.15s ease;
+}
+.icon-btn:active { transform: scale(0.88); }
+.icon-btn.icon-fav { color: #b45309; }
+.icon-btn.icon-fav.on,
+.icon-btn.icon-fav.star-filled {
+  background: rgba(245, 158, 11, 0.18);
+  color: #f59e0b;
+}
+.icon-btn.icon-fav.star-filled .svg-ic svg { fill: currentColor; }
+body.dark .icon-btn { background: rgba(120, 120, 128, 0.24); }
 
 .viewer-title {
   font-size: 15px;
