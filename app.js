@@ -1114,14 +1114,8 @@
       cont.appendChild(chevEl());
       cont.addEventListener('click', function () {
         if (tooSoon()) return;
-        var access = fileAccess(last);
-        if (access === 'free' && !/^https:\/\/t\.me\//i.test(last.u)) {
-          haptic('light');
-          recordRecent(last.id);
-          push({ type: 'viewer', file: last });
-        } else {
-          openFileDetails(last);
-        }
+        // صفحة التفاصيل أولاً — القراءة نفسها تفتح في المتصفح من هناك
+        openFileDetails(last);
       });
       viewEl.appendChild(cont);
     }
@@ -1714,13 +1708,30 @@
     box.appendChild(coverEl(f, false));
 
     box.appendChild(el('div', 'detail-name', f.n));
-    box.appendChild(el('div', 'detail-type', typeOf(f).label));
 
     var crumb = crumbRow(f.c);
     if (crumb.children.length) box.appendChild(crumb);
 
-    var meta = metaLine(f);
-    if (meta) box.appendChild(el('div', 'detail-path', meta));
+    // بطاقة معلومات الملف — تفاصيل سريعة في شبكة أنيقة (تصميم جديد)
+    var info = el('div', 'file-info-grid');
+    function infoCell(icon, label, value) {
+      var cell = el('div', 'file-info-cell');
+      var head = el('div', 'file-info-label');
+      head.appendChild(svgIcon(icon, 13));
+      head.appendChild(el('span', null, label));
+      cell.appendChild(head);
+      cell.appendChild(el('div', 'file-info-value', value));
+      return cell;
+    }
+    info.appendChild(infoCell('fileText', 'النوع', typeOf(f).label));
+    if (f.lv) info.appendChild(infoCell('bookOpen', 'المستوى', f.lv));
+    if (f.sb) info.appendChild(infoCell('library', 'المادة', f.sb));
+    if (f.k) info.appendChild(infoCell('trend', 'الاستخدامات', String(f.k)));
+    if (info.children.length > 1 || info.children.length % 2 === 1) {
+      // خلية توازن عند العدد الفردي حتى تبقى الشبكة 2×2 متناسقة
+      if (info.children.length % 2 === 1) info.appendChild(el('div', 'file-info-cell file-info-empty'));
+      box.appendChild(info);
+    }
 
     var access = fileAccess(f);
     // حالة VIP من الكاش تكفي للعرض عند تعطل الـ API — قرار الفتح يبقى للخادم
@@ -1748,13 +1759,14 @@
       tgOpen.addEventListener('click', function () { openTelegramUrl(f.u, true); });
       box.appendChild(tgOpen);
     } else if (access === 'free') {
+      // القراءة تفتح الملف في المتصفح مباشرة (تفضيل المالك — بدل العارض الداخلي)
       var read = el('button', 'primary-btn');
       read.type = 'button';
       read.appendChild(svgIcon('bookOpen', 17));
       read.appendChild(el('span', null, 'قراءة'));
       read.addEventListener('click', function () {
         haptic('light');
-        push({ type: 'viewer', file: f });
+        openExternalUrl(f.u);
       });
       box.appendChild(read);
     } else if (access === 'vip') {
@@ -1779,7 +1791,8 @@
           openLive.querySelector('span').textContent = '▶ اقرأ الآن';
           if (r.mode === 'web' && r.url) {
             recordRecent(f.id);
-            push({ type: 'viewer', file: { id: f.id, n: f.n, u: r.url, c: f.c } });
+            // فتح في المتصفح مباشرة — نفس تجربة «قراءة» (تفضيل المالك)
+            openExternalUrl(r.url);
           } else if (r.mode === 'download' && r.url) {
             openExternalUrl(state.api + r.url);
           } else {
