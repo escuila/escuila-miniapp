@@ -43,7 +43,7 @@
   var sheetBackdrop = document.getElementById('sheet-backdrop');
   var tabButtons = Array.prototype.slice.call(document.querySelectorAll('#bottombar .tab'));
 
-  var TAB_ROOTS = { home: 'home', library: 'library', search: 'search', favs: 'favs', admin: 'admin' };
+  var TAB_ROOTS = { home: 'home', library: 'library', search: 'search', favs: 'favs', vip: 'vip', admin: 'admin' };
 
   /* ─── ui helpers ─── */
 
@@ -143,6 +143,52 @@
   var FAV_KEY = 'escuila_favs_v2';      // {ids:[...], t: lastWriteTs}
   var FAV_LEGACY_KEY = 'escuila_favs';  // v1 plain array — read once, migrated
   var RECENT_KEY = 'escuila_recents';
+  var LEVEL_KEY = 'escuila_level_v1';
+  var SEARCH_KEY = 'escuila_searches_v1';
+
+  function selectedLevel() {
+    var value = lsGet(LEVEL_KEY, '');
+    return levelValues().indexOf(value) !== -1 ? value : '';
+  }
+
+  function learningFiles(files) {
+    var level = selectedLevel();
+    return level ? files.filter(function (f) { return f.lv === level; }) : files;
+  }
+
+  function rememberSearch() {
+    var query = state.query.trim();
+    if (query.length < 2) return;
+    var searches = lsGet(SEARCH_KEY, []).filter(function (text) { return text !== query; });
+    searches.unshift(query); lsSet(SEARCH_KEY, searches.slice(0, 5));
+  }
+
+  function browseLevel(level, access) {
+    state.filters = { lv: level || '', sb: '', tp: '', ac: access || '' };
+    push({ type: 'results', source: 'all' });
+  }
+
+  function actionButton(label, icon, className, action) {
+    var button = el('button', className);
+    button.type = 'button';
+    if (icon) button.appendChild(svgIcon(icon, 18));
+    button.appendChild(el('span', null, label));
+    button.addEventListener('click', function () { haptic('light'); action(); });
+    return button;
+  }
+
+  function expiryLabel(me) {
+    if (!state.online) return 'آخر حالة محفوظة · تحقّق من اشتراكك في البوت';
+    if (me.vip_days_left === 0) return 'اشتراكك ساري حتى نهاية اليوم';
+    return 'متبقٍ ' + me.vip_days_left + ' يوم · حتى ' + formatExpiry(me.vip_expires);
+  }
+
+  function formatExpiry(value) {
+    var parts = String(value || '').slice(0, 10).split('-');
+    if (parts.length !== 3) return value || '—';
+    var date = new Date(+parts[0], +parts[1] - 1, +parts[2]);
+    return isNaN(date.getTime()) ? value : date.toLocaleDateString('ar-MA', { day: 'numeric', month: 'long', year: 'numeric' });
+  }
 
   function lsGet(key, fallback) {
     try {
@@ -189,16 +235,16 @@
   function cloudGetFavs() {
     return new Promise(function (resolve) {
       try {
-        if (!tg || !tg.CloudStorage || !tg.CloudStorage.get) return resolve(null);
-        tg.CloudStorage.get('escuila_favs', function (err, val) { resolve(err ? null : val); });
+        if (!tg || !tg.initData || !tg.CloudStorage || !tg.CloudStorage.getItem) return resolve(null);
+        tg.CloudStorage.getItem('escuila_favs', function (err, val) { resolve(err ? null : val); });
       } catch (e) { resolve(null); }
     });
   }
 
   function cloudSetFavs(payload) {
     try {
-      if (tg && tg.CloudStorage && tg.CloudStorage.set) {
-        tg.CloudStorage.set('escuila_favs', JSON.stringify(payload));
+      if (tg && tg.initData && tg.CloudStorage && tg.CloudStorage.setItem) {
+        tg.CloudStorage.setItem('escuila_favs', JSON.stringify(payload), function () {});
       }
     } catch (e) { /* storage unavailable — local only */ }
   }
@@ -841,13 +887,16 @@
       } catch (e) {}
       return null;
     }
-    if (tg && tg.CloudStorage) {
-      tg.CloudStorage.getItem(ME_CACHE_KEY, function (err, val) {
-        cb(err ? null : parse(val));
-      });
-    } else {
-      cb(parse(localStorage.getItem(ME_CACHE_KEY)));
-    }
+    // Identity is only restored inside an authenticated Telegram WebApp.
+    // Older clients and browsers must still be able to load the library.
+    if (!tg || !tg.initData) { cb(null); return; }
+    try {
+      if (tg.CloudStorage && tg.CloudStorage.getItem) {
+        tg.CloudStorage.getItem(ME_CACHE_KEY, function (err, val) {
+          cb(err ? null : parse(val));
+        });
+      } else { cb(parse(localStorage.getItem(ME_CACHE_KEY))); }
+    } catch (e) { cb(null); }
   }
 
   function initSession(attempt) {
@@ -883,9 +932,9 @@
 
   function onSessionReady() {
     var adminTab = document.querySelector('#bottombar .tab[data-tab="admin"]');
-    if (adminTab) adminTab.hidden = !state.me.is_admin;
-    if (state.me.is_admin) showToast('وضع المدير مفعّل');
-    if (state.stack[state.stack.length - 1].type === 'home') render();
+    if (adminTab) adminTab.hidden = !(state.me && state.me.is_admin);
+    if (state.me && state.me.is_admin) showToast('وضع المدير مفعّل');
+    render();
   }
 
   // تحديث صامت لبيانات المستخدم (VIP / نقاط) عند العودة للصفحة الرئيسية
@@ -894,14 +943,17 @@
     if (!state.api || !tg || !tg.initData) return;
     apiFetch('/api/me').then(function (r) {
       if (!r.user) return;
-      var wasVip = state.me && state.me.vip;
+      var before = JSON.stringify(state.me);
       state.me = r.user;
       state.me.is_admin = r.user.is_admin || false;
       state.online = true;
       saveMeCache(state.me); // تحديث الكاش
       // إذا تغير VIP أعد رسم الشاشة الحالية
-      if (wasVip !== r.user.vip) render();
-    }).catch(function () { /* صامت — لا نكسر UX */ });
+      var top = state.stack[state.stack.length - 1].type;
+      if (before !== JSON.stringify(state.me) && ['home', 'vip', 'vipFiles', 'file'].indexOf(top) !== -1) render();
+    }).catch(function () {
+      if (state.online) { state.online = false; render(); }
+    });
   }
 
   function sectionTitle(text, trailing) {
@@ -939,11 +991,13 @@
   function updateTabbar() {
     tabButtons.forEach(function (b) {
       b.classList.toggle('active', b.getAttribute('data-tab') === state.tab);
+      b.setAttribute('aria-current', b.getAttribute('data-tab') === state.tab ? 'page' : 'false');
     });
   }
 
   function switchTab(tab, opts) {
     if (tab === 'admin' && !(state.me && state.me.is_admin)) return;
+    clearTimeout(state.searchTimer);
     haptic();
     state.tab = tab;
     state.stack = [{ type: TAB_ROOTS[tab] }];
@@ -951,12 +1005,17 @@
     updateTabbar();
     if (tab === 'search' && !(opts && opts.noFocus)) searchEl.focus();
     // تحديث صامت لبيانات VIP عند العودة للصفحة الرئيسية
-    if (tab === 'home') refreshMe();
+    if (tab === 'home' || tab === 'vip') refreshMe();
   }
 
   function render() {
     var top = state.stack[state.stack.length - 1];
     var depth = state.stack.length;
+
+    var pageNav = document.getElementById('page-nav');
+    pageNav.hidden = depth < 2 || top.type === 'viewer';
+    var labels = { cat: 'المكتبة', file: 'تفاصيل الملف', results: 'تصفح الملفات', vip: 'مساحة VIP', vipFiles: 'المكتبة الحصرية', locked: 'محتوى حصري', adminUsers: 'المستخدمون', adminUser: 'تفاصيل المستخدم', adminLogs: 'سجل الإدارة' };
+    document.getElementById('page-title').textContent = labels[top.type] || '';
 
     setMainButton(null);
 
@@ -1053,52 +1112,65 @@
 
   function renderHome() {
     viewEl.innerHTML = '';
+    var me = state.me;
+    var level = selectedLevel();
+    var hero = el('section', 'learning-hero');
+    var intro = el('div', 'hero-content');
+    intro.appendChild(el('div', 'eyebrow', me && me.vip ? 'ESCUILA · VIP' : 'ESCUILA · تعلّم بطريقتك'));
+    intro.appendChild(el('h1', null, me && me.name ? 'أهلاً، ' + me.name : 'كل تعلّم كبير\nيبدأ بخطوة.'));
+    intro.appendChild(el('p', null, level ? 'دروس وفروض ' + level + '، في مكان واحد.' : 'دروس، فروض وامتحانات.\nاختر مستواك ودعنا نسهّل عليك البداية.'));
+    intro.appendChild(actionButton(level ? 'تصفح دروس مستواي' : 'اكتشف المكتبة', 'bookOpen', 'hero-button', function () {
+      if (level) browseLevel(level); else switchTab('library', { noFocus: true });
+    }));
+    hero.appendChild(intro);
+    var art = el('div', 'hero-art');
+    art.setAttribute('aria-hidden', 'true');
+    art.appendChild(svgIcon('bookOpen', 58));
+    art.appendChild(el('span', 'hero-art-dot', '+'));
+    hero.appendChild(art);
+    viewEl.appendChild(hero);
 
-    var freeCount = state.files.filter(function (f) { return !!f.u; }).length;
-    viewEl.appendChild(el('div', 'stat-line',
-      state.cats.length + ' قسم · ' + state.files.length + ' ملف · ' + freeCount + ' للقراءة المباشرة'));
+    var stats = el('div', 'library-summary');
+    [[state.files.length, 'ملف تعليمي'], [levelValues().length, 'مستويات'], [vipFilesAll().length, 'ملف حصري']].forEach(function (item) {
+      var stat = el('div');
+      stat.appendChild(el('strong', null, String(item[0])));
+      stat.appendChild(el('span', null, item[1]));
+      stats.appendChild(stat);
+    });
+    viewEl.appendChild(stats);
 
-    // بطاقة الحساب تعمل أيضاً ببيانات الكاش عندما يكون الخادم بعيد المنال
-    if (state.me) {
-      var me = state.me;
-      var acc = el('button', 'card account-card');
-      acc.type = 'button';
-      var aic = el('div', 'icon');
-      aic.appendChild(svgIcon(me.is_admin ? 'shield' : (me.vip ? 'star' : 'user'), 20));
-      acc.appendChild(aic);
-      var ainfo = el('div', 'fcard-info');
-      ainfo.appendChild(el('div', 'fcard-name', me.is_admin ? 'وضع المدير' : (me.name || 'حسابي')));
-      ainfo.appendChild(el('div', 'fcard-meta', me.vip
-        ? '⭐ مشترك نشط — ينتهي بعد ' + me.vip_days_left + ' يوم · ' + me.points + ' نقطة'
-        : (me.expired
-          ? '⚠️ انتهى اشتراكك — جدّد الآن · ' + me.points + ' نقطة'
-          : 'زائر · ' + me.points + ' نقطة — انضم لـ EscuilaVIP')));
-      acc.appendChild(ainfo);
-      acc.appendChild(chevEl());
-      acc.addEventListener('click', function () {
-        haptic('light');
-        if (me.is_admin) switchTab('admin', { noFocus: true });
-        else push({ type: 'vip' });
+    var levels = levelValues();
+    if (levels.length) {
+      var planner = el('section', 'level-planner');
+      var info = el('div', 'planner-info');
+      info.appendChild(svgIcon('sliders', 20));
+      var wording = el('div');
+      wording.appendChild(el('label', 'planner-title', 'مكتبتك، على مقاسك'));
+      wording.lastChild.setAttribute('for', 'learning-level');
+      wording.appendChild(el('div', 'planner-sub', 'احفظ مستواك لنقترح عليك المحتوى المناسب'));
+      info.appendChild(wording);
+      planner.appendChild(info);
+      var select = el('select', 'level-select');
+      select.id = 'learning-level';
+      select.appendChild(el('option', null, 'كل المستويات'));
+      select.firstChild.value = '';
+      levels.forEach(function (lv) { var option = el('option', null, lv); option.value = lv; select.appendChild(option); });
+      select.value = level;
+      select.addEventListener('change', function () {
+        lsSet(LEVEL_KEY, select.value);
+        render();
+        showToast(select.value ? 'تم حفظ مستواك على هذا الجهاز' : 'نعرض لك جميع المستويات');
       });
-      viewEl.appendChild(acc);
+      planner.appendChild(select);
+      viewEl.appendChild(planner);
     }
 
-    // ─── VIP أولاً: أول ما يراه الزائر الجديد بعد بطاقة حسابه ───
-    buildVipHomeSection();
+    var shortcuts = el('div', 'quick-actions');
+    shortcuts.appendChild(actionButton('المكتبة', 'library', 'quick-action', function () { switchTab('library', { noFocus: true }); }));
+    shortcuts.appendChild(actionButton('المفضلة', 'star', 'quick-action', function () { switchTab('favs', { noFocus: true }); }));
+    shortcuts.appendChild(actionButton(me && me.vip ? 'مساحتي VIP' : 'اكتشف VIP', 'gem', 'quick-action quick-vip', function () { switchTab('vip', { noFocus: true }); }));
+    viewEl.appendChild(shortcuts);
 
-    // فئات سريعة (قيم حقيقية)
-    var levels = chipRow('حسب المستوى', levelValues(), function (lv) {
-      state.filters = { lv: lv, sb: '', tp: '', ac: '' };
-      push({ type: 'results', source: 'all' });
-    });
-    if (levels) viewEl.appendChild(levels);
-    var subjects = chipRow('حسب المادة', subjectValues(), function (sb) {
-      state.filters = { lv: '', sb: sb, tp: '', ac: '' };
-      push({ type: 'results', source: 'all' });
-    });
-    if (subjects) viewEl.appendChild(subjects);
-
-    // متابعة القراءة
     var last = filesByIds(lsGet(RECENT_KEY, []))[0];
     if (last) {
       var cont = el('button', 'continue-card');
@@ -1107,7 +1179,7 @@
       var cinfo = el('div', 'fcard-info');
       var clabel = el('div', 'continue-label');
       clabel.appendChild(svgIcon('clock', 13));
-      clabel.appendChild(el('span', null, 'متابعة'));
+      clabel.appendChild(el('span', null, 'أكمل من حيث توقفت'));
       cinfo.appendChild(clabel);
       cinfo.appendChild(el('div', 'fcard-name', last.n));
       cont.appendChild(cinfo);
@@ -1120,25 +1192,46 @@
       viewEl.appendChild(cont);
     }
 
-    // اكتشاف — 6 عناصر لكل صف + عرض الكل
-    var recent = recentAddedFiles(6);
+    if (me && me.vip) {
+      viewEl.appendChild(actionButton('اشتراكك مفعّل · ' + expiryLabel(me), 'gem', 'member-home-link', function () { switchTab('vip', { noFocus: true }); }));
+      var exclusive = learningFiles(vipFilesAll()).slice().sort(function (a, b) { return b.id - a.id; }).slice(0, 6);
+      if (exclusive.length) viewEl.appendChild(hScrollRow('جديد مكتبتك الحصرية', exclusive, function () { push({ type: 'vipFiles' }); }));
+    }
+
+    var recent = learningFiles(state.files).slice().sort(function (a, b) { return b.id - a.id; }).slice(0, 6);
     if (recent.length) viewEl.appendChild(hScrollRow('أُضيف حديثاً', recent, function () {
+      state.filters = { lv: level, sb: '', tp: '', ac: '' };
       push({ type: 'results', source: 'all', mode: 'recent' });
     }));
 
-    var popular = popularFiles(6);
+    var subjects = chipRow('اختر المادة', distinctSubjectsForLevel(level), function (sb) {
+      state.filters = { lv: level, sb: sb, tp: '', ac: '' };
+      push({ type: 'results', source: 'all' });
+    });
+    if (subjects) viewEl.appendChild(subjects);
+
+    var popular = learningFiles(state.files).filter(function (f) { return f.k > 0; }).sort(function (a, b) { return b.k - a.k; }).slice(0, 6);
     if (popular.length) viewEl.appendChild(hScrollRow('الأكثر استخداماً', popular, function () {
+      state.filters = { lv: level, sb: '', tp: '', ac: '' };
       push({ type: 'results', source: 'all', mode: 'popular' });
     }));
 
     var reco = recommendedFiles(6);
     if (reco.length) viewEl.appendChild(hScrollRow('مقترح لك', reco));
 
+    if (!(me && me.vip)) buildVipHomeSection();
+
     var allBtn = el('button', 'secondary-btn');
     allBtn.type = 'button';
     allBtn.textContent = 'استعرض كل الأقسام في المكتبة';
     allBtn.addEventListener('click', function () { switchTab('library', { noFocus: true }); });
     viewEl.appendChild(allBtn);
+  }
+
+  function distinctSubjectsForLevel(level) {
+    var subjects = {};
+    state.files.forEach(function (f) { if (f.sb && (!level || f.lv === level)) subjects[f.sb] = true; });
+    return Object.keys(subjects).sort();
   }
 
   /* ─── library tab ─── */
@@ -1343,8 +1436,19 @@
     var q = normalize(state.query);
 
     if (!q) {
-      viewEl.appendChild(emptyBox('اكتب في خانة البحث بالأعلى<br>اسم درس أو فرض أو مادة…', 'search'));
-      var popular = popularFiles(6);
+      viewEl.appendChild(el('h1', 'screen-heading', state.filters.ac === 'vip' ? 'ابحث في مكتبتك الحصرية' : 'ماذا تريد أن تجد؟'));
+      viewEl.appendChild(el('p', 'screen-description', 'اكتب اسم الدرس أو المادة، أو ابدأ بأحد الاقتراحات.'));
+      if (filtersActive()) viewEl.appendChild(activeChipsRow());
+      var searches = lsGet(SEARCH_KEY, []);
+      var suggestions = searches.length ? searches : ['الرياضيات', 'اللغة العربية', 'اللغة الفرنسية', 'امتحان'];
+      var row = chipRow(searches.length ? 'بحثك الأخير' : 'جرّب البحث عن', suggestions, function (value) {
+        state.query = value; searchEl.value = value; clearEl.hidden = false; rememberSearch(); searchEl.blur(); render();
+      });
+      if (row) viewEl.appendChild(row);
+      viewEl.appendChild(actionButton('تصفح حسب المستوى والمادة', 'sliders', 'secondary-btn', function () {
+        openFilterSheet(state.files, 'search');
+      }));
+      var popular = applyFilters(state.files).filter(function (f) { return f.k > 0; }).sort(function (a, b) { return b.k - a.k; }).slice(0, 6);
       if (popular.length) viewEl.appendChild(hScrollRow('🔥 الأكثر استخداماً', popular));
       return;
     }
@@ -1370,6 +1474,9 @@
 
     if (!files.length && !cats.length) {
       viewEl.appendChild(emptyBox('لا توجد نتائج مطابقة.<br>جرّب كلمات أقصر أو اسم المادة.', 'search'));
+      if (filtersActive()) viewEl.appendChild(actionButton('مسح الفلاتر والبحث مجدداً', 'refresh', 'secondary-btn', function () {
+        state.filters = { lv: '', sb: '', tp: '', ac: '' }; render();
+      }));
       return;
     }
 
@@ -1435,6 +1542,13 @@
     } else if (state.filters.ac === 'vip') {
       head = '💎 محتوى VIP';
     }
+    if (!mode && source !== 'search') {
+      base.sort(function (a, b) {
+        var member = state.me && (state.me.vip || state.me.is_admin);
+        var accessOrder = member ? 0 : Number(fileAccess(a) === 'vip') - Number(fileAccess(b) === 'vip');
+        return accessOrder || b.id - a.id;
+      });
+    }
     var files = applyFilters(base);
 
     var refresh = el('button', 'link-btn');
@@ -1493,6 +1607,9 @@
     });
 
     var sheet = el('div', 'sheet');
+    sheet.setAttribute('role', 'dialog');
+    sheet.setAttribute('aria-modal', 'true');
+    sheet.setAttribute('aria-label', 'تصفية الملفات');
     var head = el('div', 'sheet-head');
     var st = el('div', 'sheet-title');
     st.appendChild(svgIcon('sliders', 16));
@@ -1512,14 +1629,14 @@
       g.appendChild(el('div', 'fgroup-title', label));
       var row = el('div', 'fgroup-chips');
       keys.sort(orderFn).forEach(function (v) {
-        var chip = el('button', 'fchip' + (current[k] === v ? ' on' : ''));
+        var chip = el('button', 'fchip' + (current[key] === v ? ' on' : ''));
         chip.type = 'button';
         chip.textContent = labelFn ? labelFn(v) : v;
         chip.addEventListener('click', function () {
           haptic();
-          current[k] = current[k] === v ? '' : v;
+          current[key] = current[key] === v ? '' : v;
           Array.prototype.forEach.call(row.children, function (n) { n.classList.remove('on'); });
-          if (current[k] === v) chip.classList.add('on');
+          if (current[key] === v) chip.classList.add('on');
           updateCount();
         });
         row.appendChild(chip);
@@ -1576,7 +1693,7 @@
     clearAll.textContent = 'مسح كل الفلاتر';
     clearAll.addEventListener('click', function () {
       haptic();
-      draft = { lv: '', sb: '', tp: '', ac: '' };
+      Object.keys(draft).forEach(function (key) { draft[key] = ''; });
       Array.prototype.forEach.call(sheet.querySelectorAll('.fchip.on'), function (n) { n.classList.remove('on'); });
       updateCount();
     });
@@ -1587,6 +1704,7 @@
     closeBtn.addEventListener('click', closeSheet);
     sheetBackdrop.addEventListener('click', closeSheet);
     updateCount();
+    closeBtn.focus();
   }
 
   function closeSheet() {
@@ -1662,12 +1780,15 @@
     var favB = el('button', 'icon-btn icon-fav' + (isFav(f.id) ? ' on' : ''));
     favB.type = 'button';
     favB.setAttribute('aria-label', isFav(f.id) ? 'إزالة من المفضلة' : 'إضافة إلى المفضلة');
+    favB.setAttribute('aria-pressed', String(isFav(f.id)));
     favB.appendChild(svgIcon('star', 19));
     if (isFav(f.id)) favB.classList.add('star-filled');
     favB.addEventListener('click', function () {
       toggleFav(f.id);
       favB.classList.toggle('on');
       favB.classList.toggle('star-filled');
+      favB.setAttribute('aria-label', isFav(f.id) ? 'إزالة من المفضلة' : 'إضافة إلى المفضلة');
+      favB.setAttribute('aria-pressed', String(isFav(f.id)));
     });
     bar.appendChild(favB);
 
@@ -1838,8 +1959,70 @@
 
   /* ─── VIP screen — mirrors build_vip_subscribe_text/keyboard ─── */
 
+  function vipOption(icon, label, action) {
+    var button = actionButton(label, icon, 'vip-opt', action);
+    button.appendChild(svgIcon('chevLeft', 15));
+    return button;
+  }
+
+  function renderVipMember() {
+    var me = state.me;
+    var hero = el('section', 'member-hero');
+    hero.appendChild(el('div', 'eyebrow', 'ESCUILA VIP · مساحتك الخاصة'));
+    hero.appendChild(el('h1', null, 'جاهز لخطوتك التالية؟'));
+    hero.appendChild(el('p', null, 'مكتبتك الحصرية، مفضلتك وآخر ملفاتك. كل شيء قريب منك.'));
+    var pill = el('div', 'member-status');
+    pill.appendChild(svgIcon('check', 16));
+    pill.appendChild(el('span', null, state.online ? 'اشتراك مفعّل' : 'آخر حالة محفوظة'));
+    hero.appendChild(pill);
+    hero.appendChild(el('div', 'member-expiry', expiryLabel(me)));
+    viewEl.appendChild(hero);
+
+    var summary = el('div', 'member-summary');
+    [[vipFilesAll().length, 'ملف حصري'], [favIds().length, 'في المفضلة'], [me.points || 0, 'نقاطك']].forEach(function (item) {
+      var stat = el('div');
+      stat.appendChild(el('strong', null, String(item[0])));
+      stat.appendChild(el('span', null, item[1]));
+      summary.appendChild(stat);
+    });
+    viewEl.appendChild(summary);
+    viewEl.appendChild(actionButton('افتح مكتبتي الحصرية', 'bookOpen', 'primary-btn member-primary', function () { push({ type: 'vipFiles' }); }));
+
+    var actions = el('div', 'quick-actions');
+    actions.appendChild(actionButton('المفضلة', 'star', 'quick-action', function () { switchTab('favs', { noFocus: true }); }));
+    actions.appendChild(actionButton('بحث حصري', 'search', 'quick-action', function () {
+      state.filters = { lv: selectedLevel(), sb: '', tp: '', ac: 'vip' };
+      switchTab('search');
+    }));
+    actions.appendChild(actionButton('مساعدة', 'chat', 'quick-action', function () { openBotChat('vip_support'); }));
+    viewEl.appendChild(actions);
+
+    var recents = filesByIds(lsGet(RECENT_KEY, [])).filter(function (f) { return f.r === 'vip'; }).slice(0, 6);
+    if (recents.length) viewEl.appendChild(hScrollRow('تابع مراجعتك', recents));
+    var recent = learningFiles(vipFilesAll()).slice().sort(function (a, b) { return b.id - a.id; }).slice(0, 6);
+    if (recent.length) viewEl.appendChild(hScrollRow(selectedLevel() ? 'حصري لمستواك' : 'جديد المحتوى الحصري', recent, function () { push({ type: 'vipFiles' }); }));
+
+    var options = el('div', 'vip-opts');
+    options.appendChild(vipOption('refresh', 'تحديث حالة اشتراكي', function () {
+      if (!state.api || !tg || !tg.initData) { openBotChat('vip'); return; }
+      showToast('نتحقق من حالة اشتراكك…');
+      apiFetch('/api/me').then(function (r) {
+        if (!r.user) throw new Error();
+        state.me = r.user; state.online = true; saveMeCache(r.user); render();
+        showToast('تم تحديث حالة اشتراكك');
+      }).catch(function () { state.online = false; render(); showToast('تعذّر الاتصال الآن. تحقّق من اشتراكك داخل البوت.'); });
+    }));
+    options.appendChild(vipOption('card', me.vip_days_left <= 7 ? 'ينتهي قريباً · خيارات التجديد' : 'خيارات تجديد اشتراكي', function () {
+      push({ type: 'vip', renewing: true });
+    }));
+    viewEl.appendChild(options);
+    viewEl.appendChild(el('div', 'vip-note', 'الفتح والتحميل يتحققان من صلاحية اشتراكك عند كل طلب.'));
+  }
+
   function renderVip() {
     viewEl.innerHTML = '';
+    var top = state.stack[state.stack.length - 1];
+    if (state.me && state.me.vip && !top.renewing) { renderVipMember(); return; }
 
     var hero = el('div', 'vip-hero');
     var gem = el('div', 'vip-gem');
@@ -1848,15 +2031,14 @@
     hero.appendChild(el('div', 'detail-name', 'Escuila VIP'));
     var me = state.me;
     if (me && me.vip) {
-      hero.appendChild(el('div', 'vip-live-pill',
-        '✓ اشتراكك نشط — متبقٍ ' + me.vip_days_left + ' يوم (حتى ' + me.vip_expires + ')'));
+      hero.appendChild(el('div', 'vip-live-pill', expiryLabel(me)));
       hero.appendChild(el('div', 'vip-tag', 'التجديد يمدد مدتك الحالية تلقائياً'));
     } else if (me && me.expired) {
       hero.appendChild(el('div', 'vip-live-pill vip-renew-pill',
-        '⚠️ انتهى اشتراكك في ' + (me.vip_expires || '-')));
-      hero.appendChild(el('div', 'vip-tag', 'جدّد الآن لاستعادة الوصول الكامل فوراً'));
+        'انتهى اشتراكك في ' + formatExpiry(me.vip_expires)));
+      hero.appendChild(el('div', 'vip-tag', 'جدّد اشتراكك لتعود إلى مكتبتك الحصرية'));
     } else {
-      hero.appendChild(el('div', 'vip-tag', 'وصول كامل لكل المحتوى الحصري'));
+      hero.appendChild(el('div', 'vip-tag', 'مكتبة حصرية تساعدك على التحضير والمراجعة'));
     }
     viewEl.appendChild(hero);
 
@@ -1874,7 +2056,7 @@
     }
 
     var feats = el('div', 'vip-feats');
-    ['ملفات حصرية', 'تصحيحات منظمة', 'ملفات منسقة جاهزة', 'تنبيهات بالجديد', 'أولوية الدعم']
+    ['الوصول إلى ' + vipFilesAll().length + ' ملفاً حصرياً متاحاً الآن', 'تصفح الأقسام التعليمية والبحث داخل الحصري', 'احفظ ملفاتك المفضلة وتابع آخر مراجعة', 'حالة اشتراك واضحة ودعم عبر البوت']
       .forEach(function (t) {
         var row = el('div', 'vip-feat');
         row.appendChild(svgIcon('check', 18));
@@ -1886,7 +2068,8 @@
     var prices = el('div', 'price-row');
     // الدفع اليدوي أولاً (الوسيلة الأساسية) — النجوم خيار لمن يستعملها
     if (state.madPrice > 0) {
-      var pm = el('div', 'price-card price-card-wide price-card-main');
+      var pm = el('button', 'price-card price-card-wide price-card-main');
+      pm.type = 'button';
       var pl2 = el('div', 'price-label');
       pl2.appendChild(svgIcon('card', 16));
       pl2.appendChild(el('span', null, 'تحويل بنكي · CCP · PayPal'));
@@ -1897,13 +2080,15 @@
       prices.appendChild(pm);
     }
     if (state.starsPrice > 0) {
-      var pc = el('div', 'price-card price-card-wide price-star');
+      var pc = el('button', 'price-card price-card-wide price-star');
+      pc.type = 'button';
       var pl1 = el('div', 'price-label');
       pl1.appendChild(svgIcon('star', 16));
       pl1.appendChild(el('span', null, 'نجوم تيليجرام'));
       pc.appendChild(pl1);
       pc.appendChild(el('div', 'price-value', state.starsPrice + ' ⭐'));
-      pc.appendChild(el('div', 'price-note', 'خيار إضافي — فوري وتلقائي'));
+      pc.appendChild(el('div', 'price-note', 'الدفع داخل تيليجرام · التفعيل بعد تأكيد الإدارة'));
+      pc.addEventListener('click', openVipSubscribe);
       prices.appendChild(pc);
     }
     viewEl.appendChild(prices);
@@ -1922,7 +2107,17 @@
     cta.addEventListener('click', function () { haptic('light'); openBotChat('vip_request'); });
     viewEl.appendChild(cta);
     viewEl.appendChild(el('div', 'vip-cta-note',
-      'التفعيل فوري تلقائياً بعد الدفع داخل تيليجرام'));
+      'تؤكد الإدارة مدة الاشتراك وتفعّله بعد الدفع. الكود الجاهز يُفعّل مباشرة.'));
+
+    var steps = el('div', 'subscription-steps');
+    steps.appendChild(el('h2', null, 'كيف يبدأ اشتراكك؟'));
+    ['تعرّف على المحتوى الحصري قبل الاشتراك', 'اختر طريقة الدفع وأكّد المدة مع الإدارة', 'بعد التفعيل، افتح مكتبتك من مساحة VIP'].forEach(function (text, index) {
+      var row = el('div', 'subscription-step');
+      row.appendChild(el('span', 'step-number', String(index + 1)));
+      row.appendChild(el('span', null, text));
+      steps.appendChild(row);
+    });
+    viewEl.appendChild(steps);
 
     var opts = el('div', 'vip-opts');
     function vipOpt(icon, label, fn) {
@@ -1935,10 +2130,11 @@
       return b;
     }
     if (state.starsPrice > 0) {
-      opts.appendChild(vipOpt('star', 'الدفع بالنجوم — ' + state.starsPrice + ' ⭐ (فوري)', openVipSubscribe));
+      opts.appendChild(vipOpt('star', 'الدفع بالنجوم — ' + state.starsPrice + ' ⭐', openVipSubscribe));
     }
-    opts.appendChild(vipOpt('chat', 'تواصل مع الإدارة', function () { openBotChat('vip_request'); }));
-    opts.appendChild(vipOpt('ticket', 'لدي كود اشتراك', function () { openBotChat('vip'); }));
+    opts.appendChild(vipOpt('bookOpen', 'عاين المكتبة الحصرية', function () { push({ type: 'vipFiles' }); }));
+    opts.appendChild(vipOpt('chat', 'تواصل مع الإدارة', function () { openBotChat('vip_support'); }));
+    opts.appendChild(vipOpt('ticket', 'لدي كود اشتراك', function () { openBotChat('vip_code'); }));
     viewEl.appendChild(opts);
 
     // زر تيليجرام الأصلي = نفس مسار الزر الرئيسي (طلب يدوي)
@@ -1978,7 +2174,7 @@
     if (isVip) {
       var pillText = me.is_admin
         ? '✓ وضع المدير — وصول كامل'
-        : '✓ اشتراكك نشط — متبقٍ ' + me.vip_days_left + ' يوم (حتى ' + (me.vip_expires || '-') + ')';
+        : expiryLabel(me);
       viewEl.appendChild(el('div', 'vip-live-pill', pillText));
       if (me.vip && me.vip_days_left <= 7) {
         var renew = el('button', 'secondary-btn vip-renew-banner');
@@ -1991,7 +2187,7 @@
       // ─── غير مشترك: المكتبة مرئية مقفلة — الأسماء معروضة والفتح خلف الاشتراك ───
       if (me && me.expired) {
         viewEl.appendChild(el('div', 'vip-live-pill vip-renew-pill',
-          '⚠️ انتهى اشتراكك في ' + (me.vip_expires || '-') + ' — جدّد لاستعادة الوصول'));
+          'انتهى اشتراكك في ' + formatExpiry(me.vip_expires) + ' — جدّد لاستعادة الوصول'));
       } else {
         viewEl.appendChild(el('div', 'vip-live-pill vip-renew-pill',
           '🔒 المحتوى مقفل — اشترك لفتح ' + all.length + ' ملفاً'));
@@ -2487,13 +2683,16 @@
 
     var favBtn = el('button', 'icon-btn icon-fav' + (isFav(f.id) ? ' on' : ''));
     favBtn.type = 'button';
-    favBtn.setAttribute('aria-label', 'المفضلة');
+    favBtn.setAttribute('aria-label', isFav(f.id) ? 'إزالة من المفضلة' : 'إضافة إلى المفضلة');
+    favBtn.setAttribute('aria-pressed', String(isFav(f.id)));
     favBtn.appendChild(svgIcon('star', 18));
     if (isFav(f.id)) favBtn.classList.add('star-filled');
     favBtn.addEventListener('click', function () {
       toggleFav(f.id);
       favBtn.classList.toggle('on');
       favBtn.classList.toggle('star-filled');
+      favBtn.setAttribute('aria-label', isFav(f.id) ? 'إزالة من المفضلة' : 'إضافة إلى المفضلة');
+      favBtn.setAttribute('aria-pressed', String(isFav(f.id)));
     });
     barActions.appendChild(favBtn);
 
@@ -2606,6 +2805,16 @@
 
   /* ─── events ─── */
 
+  document.getElementById('page-back').addEventListener('click', goBack);
+  document.getElementById('headerVip').addEventListener('click', function () { switchTab('vip', { noFocus: true }); });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) refreshMe(); });
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && document.querySelector('.sheet')) closeSheet();
+  });
+  searchEl.addEventListener('keydown', function (event) {
+    if (event.key === 'Enter') { state.query = searchEl.value.trim(); rememberSearch(); searchEl.blur(); }
+  });
+
   searchEl.addEventListener('focus', function () {
     document.body.classList.add('kb-open');
   });
@@ -2661,6 +2870,7 @@
 
   function fail(msg, iconName) {
     viewEl.innerHTML = '';
+    viewEl.setAttribute('aria-busy', 'false');
     var box = el('div', 'error-box');
     box.appendChild(svgIcon(iconName || 'refresh', 40));
     box.appendChild(el('div', 'error-msg', msg));
@@ -2672,6 +2882,10 @@
   }
 
   function showSkeleton() {
+    viewEl.setAttribute('aria-busy', 'true');
+    tabButtons.forEach(function (button) { button.disabled = true; });
+    document.getElementById('headerVip').disabled = true;
+    searchEl.disabled = true;
     viewEl.innerHTML = '';
     for (var i = 0; i < 6; i++) viewEl.appendChild(el('div', 'skel skel-card'));
   }
@@ -2736,6 +2950,10 @@
         state.stack = [{ type: 'home' }];
         state.tab = 'home';
         state.catFilter = 'all';
+        viewEl.setAttribute('aria-busy', 'false');
+        tabButtons.forEach(function (button) { button.disabled = false; });
+        document.getElementById('headerVip').disabled = false;
+        searchEl.disabled = false;
         render();
         updateTabbar();
         syncFavsFromCloud();
@@ -2749,7 +2967,8 @@
           } catch (e) { /* older clients */ }
         }
       })
-      .catch(function () {
+      .catch(function (error) {
+        console.error('Escuila library loading failed:', error && error.message);
         fail(navigator.onLine === false
           ? 'لا يوجد اتصال بالإنترنت — تحقق من الشبكة ثم أعد المحاولة.'
           : 'حدث خطأ أثناء تحميل البيانات',

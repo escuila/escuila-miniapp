@@ -4,23 +4,26 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
-<link rel="stylesheet" href="tokens.css">
-<link rel="stylesheet" href="style.css">
-<title>Escuila — المكتبة</title>
+<link rel="stylesheet" href="tokens.css?v=20261003-ux4">
+<link rel="stylesheet" href="style.css?v=20261003-ux4">
+<link rel="stylesheet" href="workspace.css?v=20261003-ux4">
+<meta name="theme-color" content="#6d43d9">
+<title>Escuila — مساحتك للتعلم</title>
 <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
-<script defer src="app.js"></script>
+<script defer src="app.js?v=20261003-ux4"></script>
 </head>
 <body>
 <header id="topbar">
-  <div id="brand"><img id="logo" src="assets/logo.png" alt="Escuila"></div>
+  <div id="brand"><img id="logo" src="assets/logo.png" alt="Escuila"><span class="brand-caption">مساحتك للتعلّم</span><button id="headerVip" type="button" aria-label="فتح مساحة VIP"><span data-icon="gem" data-icon-size="15"></span><span>VIP</span></button></div>
   <div id="searchwrap">
     <span class="search-ic" data-icon="search" data-icon-size="16"></span>
-    <input id="search" type="search" placeholder="ابحث عن درس، فرض، مادة…" autocomplete="off" enterkeyhint="search">
+    <input id="search" type="search" aria-label="البحث في المكتبة" placeholder="ما الذي تريد تعلّمه اليوم؟" autocomplete="off" enterkeyhint="search">
     <button id="clearSearch" type="button" aria-label="مسح البحث" hidden><span data-icon="x" data-icon-size="12"></span></button>
   </div>
 </header>
 
-<main id="view">
+<div id="page-nav" hidden><button id="page-back" type="button" aria-label="العودة للشاشة السابقة"><span data-icon="chevLeft" data-icon-size="18"></span><span>رجوع</span></button><span id="page-title"></span></div>
+<main id="view" aria-label="المحتوى">
   <div class="skel skel-card"></div>
   <div class="skel skel-card"></div>
   <div class="skel skel-card"></div>
@@ -28,17 +31,18 @@
   <div class="skel skel-card"></div>
 </main>
 
-<nav id="bottombar">
+<nav id="bottombar" aria-label="التنقل الرئيسي">
   <div id="bar-inner">
     <button class="tab active" data-tab="home" type="button"><span class="ticon" data-icon="home" data-icon-size="20"></span><span class="tlabel">الرئيسية</span></button>
     <button class="tab" data-tab="library" type="button"><span class="ticon" data-icon="library" data-icon-size="20"></span><span class="tlabel">المكتبة</span></button>
     <button class="tab" data-tab="search" type="button"><span class="ticon" data-icon="search" data-icon-size="20"></span><span class="tlabel">البحث</span></button>
     <button class="tab" data-tab="favs" type="button"><span class="ticon" data-icon="star" data-icon-size="20"></span><span class="tlabel">المفضلة</span></button>
+    <button class="tab" data-tab="vip" type="button"><span class="ticon" data-icon="gem" data-icon-size="20"></span><span class="tlabel">مساحة VIP</span></button>
     <button class="tab" data-tab="admin" type="button" hidden><span class="ticon" data-icon="shield" data-icon-size="20"></span><span class="tlabel">الإدارة</span></button>
   </div>
 </nav>
 
-<div id="toast" hidden></div>
+<div id="toast" role="status" aria-live="polite" hidden></div>
 <div id="sheet-backdrop" hidden></div>
 </body>
 </html>

@@ -48,11 +48,27 @@
   --ease: cubic-bezier(0.2, 0, 0, 1);
 
   /* layout */
-  --content-max: 680px;
+  --content-max: 760px;
+
+  /* Learning workspace */
+  --surface: var(--tg-theme-bg-color, #ffffff);
+  --canvas: var(--tg-theme-secondary-bg-color, #f7f7fc);
+  --border: rgba(90, 83, 120, 0.12);
+  --brand-soft: rgba(109, 67, 217, 0.08);
+  --hero-start: #292342;
+  --hero-end: #55408d;
+  --hero-text: #ffffff;
+  --hero-muted: #e3dcf6;
+  --member-start: #352b22;
+  --member-end: #645033;
+  --gold: #f3d39b;
+  --shadow-card: 0 4px 18px rgba(40, 30, 80, 0.04);
 }
 
 /* dark-theme semantic adjustments (applied by app.js via tg.colorScheme) */
 body.dark {
+  --border: rgba(200, 192, 230, 0.16);
+  --brand-soft: rgba(160, 133, 240, 0.14);
   --free-fg: #4ade80;
   --free-bg: rgba(34, 197, 94, 0.18);
   --vip-fg: #fbbf24;
