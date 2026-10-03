@@ -69,7 +69,12 @@
   function el(tag, className, text) {
     var node = document.createElement(tag);
     if (className) node.className = className;
-    if (text !== undefined) node.textContent = text;
+    if (typeof text === 'string' && /20\d{2}-20\d{2}/.test(text)) {
+      text.split(/(20\d{2}-20\d{2})/).forEach(function (part) {
+        if (/^20\d{2}-20\d{2}$/.test(part)) { var date = document.createElement('bdi'); date.dir = 'ltr'; date.textContent = part; node.appendChild(date); }
+        else node.appendChild(document.createTextNode(part));
+      });
+    } else if (text !== undefined) node.textContent = text;
     return node;
   }
 
@@ -361,7 +366,7 @@
   function searchFiles(q) {
     var scored = [];
     state.files.forEach(function (f) {
-      var n = normalize(f.n);
+      var n = normalize([f.n, f.lv, f.sb, f.meta && f.meta.resource_type, f.meta && f.meta.period, f.meta && f.meta.season].filter(Boolean).join(' '));
       var idx = n.indexOf(q);
       if (idx === -1) return;
       scored.push({ f: f, score: idx });
@@ -480,13 +485,16 @@
       if (ft.sb && f.sb !== ft.sb) return false;
       if (ft.tp && typeOf(f).key !== ft.tp) return false;
       if (ft.ac && fileAccess(f) !== ft.ac) return false;
+      if (ft.rk && (f.meta || {}).resource_type !== ft.rk) return false;
+      if (ft.period && (f.meta || {}).period !== ft.period) return false;
+      if (ft.season && (f.meta || {}).season !== ft.season) return false;
       return true;
     });
   }
 
   function filtersActive() {
     var ft = state.filters;
-    return !!(ft.lv || ft.sb || ft.tp || ft.ac);
+    return !!(ft.lv || ft.sb || ft.tp || ft.ac || ft.rk || ft.period || ft.season);
   }
 
   /* ─── telegram helpers ─── */
@@ -1014,7 +1022,7 @@
 
     var pageNav = document.getElementById('page-nav');
     pageNav.hidden = depth < 2 || top.type === 'viewer';
-    var labels = { cat: 'المكتبة', file: 'تفاصيل الملف', results: 'تصفح الملفات', vip: 'مساحة VIP', vipFiles: 'المكتبة الحصرية', locked: 'محتوى حصري', adminUsers: 'المستخدمون', adminUser: 'تفاصيل المستخدم', adminLogs: 'سجل الإدارة' };
+    var labels = { cat: 'المكتبة', file: 'تفاصيل الملف', results: 'تصفح الملفات', vip: 'مساحة VIP', vipFiles: 'المكتبة الحصرية', locked: 'محتوى حصري', adminUsers: 'المستخدمون', adminUser: 'تفاصيل المستخدم', adminLogs: 'سجل الإدارة', adminResources: 'تنظيم المحتوى', resourceEditor: 'بطاقة المورد' };
     document.getElementById('page-title').textContent = labels[top.type] || '';
 
     setMainButton(null);
@@ -1047,6 +1055,8 @@
     else if (top.type === 'adminUsers') renderAdminUsers();
     else if (top.type === 'adminUser') renderAdminUser(top.user);
     else if (top.type === 'adminLogs') renderAdminLogs();
+    else if (top.type === 'adminResources') renderAdminResources(top);
+    else if (top.type === 'resourceEditor') renderResourceEditor(top);
     else if (top.type === 'cat') renderCat(top.id);
     else if (top.type === 'file') renderFileDetails(top.file);
     else if (top.type === 'viewer') renderViewer(top.file);
@@ -1598,12 +1608,15 @@
     closeSheet();
     haptic();
 
-    var lvSet = {}, sbSet = {}, tpSet = {}, acSet = {};
+    var lvSet = {}, sbSet = {}, tpSet = {}, acSet = {}, rkSet = {}, periodSet = {}, seasonSet = {};
     baseFiles.forEach(function (f) {
       if (f.lv) lvSet[f.lv] = true;
       if (f.sb) sbSet[f.sb] = true;
       tpSet[typeOf(f).key] = true;
       acSet[fileAccess(f)] = true;
+      if (f.meta && f.meta.resource_type) rkSet[f.meta.resource_type] = true;
+      if (f.meta && f.meta.period) periodSet[f.meta.period] = true;
+      if (f.meta && f.meta.season) seasonSet[f.meta.season] = true;
     });
 
     var sheet = el('div', 'sheet');
@@ -1645,12 +1658,15 @@
       sheet.appendChild(g);
     }
 
-    var draft = { lv: state.filters.lv, sb: state.filters.sb, tp: state.filters.tp, ac: state.filters.ac };
+    var draft = { lv: state.filters.lv, sb: state.filters.sb, tp: state.filters.tp, ac: state.filters.ac, rk: state.filters.rk || '', period: state.filters.period || '', season: state.filters.season || '' };
     var draftFiles = function () { return baseFiles.filter(function (f) {
       if (draft.lv && f.lv !== draft.lv) return false;
       if (draft.sb && f.sb !== draft.sb) return false;
       if (draft.tp && typeOf(f).key !== draft.tp) return false;
       if (draft.ac && fileAccess(f) !== draft.ac) return false;
+      if (draft.rk && (f.meta || {}).resource_type !== draft.rk) return false;
+      if (draft.period && (f.meta || {}).period !== draft.period) return false;
+      if (draft.season && (f.meta || {}).season !== draft.season) return false;
       return true;
     }); };
 
@@ -1663,6 +1679,9 @@
 
     group('المستوى', lvSet, draft, 'lv', function (a, b) { return levelRank(a) - levelRank(b); });
     group('المادة', sbSet, draft, 'sb');
+    group('نوع المورد', rkSet, draft, 'rk');
+    group('الفترة', periodSet, draft, 'period');
+    group('الموسم الدراسي', seasonSet, draft, 'season');
     group('النوع', tpSet, draft, 'tp', function (a, b) {
       return TYPES.findIndex(function (t) { return t.key === a; })
         - TYPES.findIndex(function (t) { return t.key === b; });
@@ -1845,6 +1864,11 @@
       return cell;
     }
     info.appendChild(infoCell('fileText', 'النوع', typeOf(f).label));
+    var meta = f.meta || {};
+    if (meta.resource_type) info.appendChild(infoCell('bookOpen', 'نوع المورد', meta.resource_type));
+    if (meta.period) info.appendChild(infoCell('clock', 'الفترة', meta.period));
+    if (meta.season) info.appendChild(infoCell('clock', 'الموسم الدراسي', meta.season));
+    if (meta.has_correction !== undefined && meta.has_correction !== null) info.appendChild(infoCell('check', 'التصحيح', meta.has_correction ? 'مرفق' : 'غير مرفق'));
     if (f.lv) info.appendChild(infoCell('bookOpen', 'المستوى', f.lv));
     if (f.sb) info.appendChild(infoCell('library', 'المادة', f.sb));
     if (f.k) info.appendChild(infoCell('trend', 'الاستخدامات', String(f.k)));
@@ -1854,6 +1878,13 @@
       box.appendChild(info);
     }
 
+    if (meta.description) box.appendChild(el('p', 'resource-description', meta.description));
+    if (meta.article_url && /^https?:\/\//i.test(meta.article_url)) {
+      box.appendChild(resourceButton('قراءة الشرح المرتبط', 'secondary-btn', function () { openExternalUrl(meta.article_url); }));
+    }
+    if (state.me && state.me.is_admin && state.online) {
+      box.appendChild(resourceButton('تنظيم بطاقة المورد', 'secondary-btn', function () { startResourceEdit(f.id); }));
+    }
     var access = fileAccess(f);
     // حالة VIP من الكاش تكفي للعرض عند تعطل الـ API — قرار الفتح يبقى للخادم
     var isVipUser = !!(state.me && (state.me.vip || state.me.is_admin));
@@ -2429,6 +2460,238 @@
     return { vip_activate: 'تفعيل VIP', vip_extend: 'تمديد VIP', vip_revoke: 'إلغاء VIP' }[a] || a;
   }
 
+  function resourceButton(label, cls, action) {
+    var b = el('button', cls, label);
+    b.type = 'button';
+    b.addEventListener('click', action);
+    return b;
+  }
+
+  function resourceAdminReady() {
+    if (state.online && state.me && state.me.is_admin) return true;
+    viewEl.appendChild(el('p', 'resource-error', 'افتح التطبيق من حساب المدير مع اتصال بالخادم لإدارة المحتوى.'));
+    return false;
+  }
+
+  function startResourceEdit(fid) {
+    apiFetch('/api/admin/resource-edit/' + fid, { method: 'POST' }).then(function (r) {
+      push({ type: 'resourceEditor', id: r.item.id });
+    }).catch(function (e) { showToast(e.message); });
+  }
+
+  function renderAdminResources(top) {
+    viewEl.innerHTML = '';
+    viewEl.appendChild(sectionTitle('تنظيم المحتوى', resourceButton('تحديث', 'link-btn', render)));
+    if (!resourceAdminReady()) return;
+    var intro = el('div', 'resource-entry');
+    intro.appendChild(el('div', 'resource-kicker', 'مسودات محفوظة • نشر بعد المراجعة'));
+    intro.appendChild(el('h2', null, 'وارد الملفات'));
+    intro.appendChild(el('p', null, 'أرسل المرفقات للبوت، أو أضف رابطًا هنا. راجع البطاقة قبل إتاحتها للمستخدمين.'));
+    var add = el('div', 'btn-row');
+    add.appendChild(resourceButton('إرسال ملفات للبوت', 'primary-btn', function () {
+      openTelegramUrl('https://t.me/' + state.botUsername + '?start=resource_upload', true);
+    }));
+    add.appendChild(resourceButton('إضافة رابط', 'secondary-btn', function () { push({ type: 'resourceEditor', id: null }); }));
+    intro.appendChild(add);
+    viewEl.appendChild(intro);
+    var tabs = el('div', 'chipbar resource-tabs');
+    [['draft', 'تنتظر المراجعة'], ['library', 'المكتبة المنشورة'], ['archived', 'الأرشيف']].forEach(function (pair) {
+      var b = resourceButton(pair[1], 'fchip' + (top.mode === pair[0] ? ' on' : ''), function () {
+        top.mode = pair[0]; top.offset = 0; render();
+      });
+      tabs.appendChild(b);
+    });
+    viewEl.appendChild(tabs);
+    var search = el('form', 'resource-search');
+    var input = el('input', 'admin-input');
+    input.type = 'search'; input.placeholder = 'ابحث باسم المورد…'; input.value = top.query || '';
+    input.setAttribute('aria-label', 'البحث في قائمة الموارد');
+    var go = el('button', 'secondary-btn', 'بحث'); go.type = 'submit';
+    search.appendChild(input); search.appendChild(go);
+    search.addEventListener('submit', function (e) { e.preventDefault(); top.query = input.value; top.offset = 0; render(); });
+    viewEl.appendChild(search);
+    var list = el('div', 'resource-list');
+    list.appendChild(el('div', 'loading', 'جارٍ تحميل الموارد…'));
+    viewEl.appendChild(list);
+    apiFetch('/api/admin/resources?status=' + top.mode + '&offset=' + (top.offset || 0) + '&q=' + encodeURIComponent(top.query || '')).then(function (r) {
+      if (!list.isConnected) return;
+      list.innerHTML = '';
+      list.appendChild(el('div', 'resource-count', 'الموارد' + (top.query ? ' المطابقة' : '') + ': ' + r.total));
+      if (!r.items.length) list.appendChild(el('p', 'detail-note', !top.query && top.mode === 'draft' ? 'الوارد فارغ. أضف ملفًا أو رابطًا لبدء التنظيم.' : 'لا توجد موارد مطابقة.'));
+      var cats = {};
+      r.categories.forEach(function (c) { cats[c.id] = c; });
+      r.items.forEach(function (item) {
+        var b = resourceButton('', 'resource-row', function () {
+          if (top.mode === 'library') startResourceEdit(item.id);
+          else push({ type: 'resourceEditor', id: item.id });
+        });
+        b.appendChild(el('span', 'resource-row-icon', top.mode === 'library' ? '📚' : item.target_file_id ? '✏️' : '📄'));
+        var content = el('span', 'resource-row-content');
+        content.appendChild(el('strong', null, item.name));
+        var meta = item.metadata || {};
+        content.appendChild(el('span', 'resource-row-meta', [meta.level, meta.subject, meta.resource_type, (cats[item.category_id] || {}).name].filter(function (value,index,all) { return value && all.indexOf(value) === index; }).join(' · ') || 'بطاقة تحتاج تنظيمًا'));
+        if (item.target_file_id) content.appendChild(el('span', 'resource-row-note', 'مراجعة تعديلات مورد منشور'));
+        b.appendChild(content);
+        b.appendChild(el('span', 'resource-access', item.is_premium ? 'VIP' : 'مجاني'));
+        list.appendChild(b);
+      });
+      var pages = el('div', 'btn-row');
+      if (top.offset) pages.appendChild(resourceButton('السابق', 'secondary-btn', function () { top.offset = Math.max(0, top.offset - 20); render(); }));
+      if ((top.offset || 0) + r.items.length < r.total) pages.appendChild(resourceButton('التالي', 'secondary-btn', function () { top.offset = (top.offset || 0) + 20; render(); }));
+      list.appendChild(pages);
+    }).catch(function (e) { list.innerHTML = ''; list.appendChild(el('p', 'resource-error', e.message)); });
+  }
+
+  function renderResourceEditor(top) {
+    viewEl.innerHTML = '';
+    viewEl.appendChild(sectionTitle(top.id ? 'مراجعة بطاقة المورد' : 'إضافة مورد من رابط'));
+    if (!resourceAdminReady()) return;
+    var host = el('div', 'resource-editor');
+    host.appendChild(el('div', 'loading', 'جارٍ تحميل البطاقة…'));
+    viewEl.appendChild(host);
+    var endpoint = top.id ? '/api/admin/resource/' + top.id : '/api/admin/resources?status=draft';
+    apiFetch(endpoint).then(function (r) {
+      if (!host.isConnected) return;
+      host.innerHTML = '';
+      var item = r.item || { id: null, status: 'draft', name: '', link: '', category_id: null, is_premium: false, metadata: {} };
+      var readOnly = item.status !== 'draft';
+      host.appendChild(el('p', 'resource-editor-note', item.target_file_id ? 'التعديلات تُراجع هنا. المورد الحالي يبقى كما هو حتى تحفظ التعديلات.' : 'احفظ المسودة قبل الخروج. المورد سيظهر للمستخدمين بعد النشر.'));
+      var form = el('form', 'resource-form');
+      var controls = {};
+      function field(key, label, values, value, type) {
+        var wrap = el('label', 'resource-field');
+        wrap.appendChild(el('span', null, label));
+        var input = el(values ? 'select' : type === 'textarea' ? 'textarea' : 'input', 'admin-input');
+        if (values) {
+          input.appendChild(el('option', null, 'اختر…'));
+          input.firstChild.value = '';
+          values.forEach(function (option) {
+            var o = el('option', null, typeof option === 'string' ? option : option.label);
+            o.value = typeof option === 'string' ? option : option.value;
+            input.appendChild(o);
+          });
+        } else if (type !== 'textarea') input.type = type || 'text';
+        input.value = value === null || value === undefined ? '' : String(value);
+        input.disabled = readOnly;
+        controls[key] = input;
+        wrap.appendChild(input); form.appendChild(wrap);
+        return input;
+      }
+      field('name', 'اسم المورد', null, item.name).maxLength = 200;
+      controls.name.required = true;
+      var cats = {}, options = [];
+      r.categories.forEach(function (c) { cats[c.id] = c; });
+      r.categories.forEach(function (c) {
+        var path = [], cur = c, seen = {};
+        while (cur && !seen[cur.id]) { seen[cur.id] = true; path.unshift(cur.name); cur = cats[cur.parent_id]; }
+        options.push({ value: c.id, label: path.join(' ← ') });
+      });
+      field('category_id', 'القسم', options, item.category_id);
+      var catSearch = el('input', 'admin-input');
+      catSearch.type = 'search'; catSearch.placeholder = 'ابحث عن القسم: السادس الرياضيات…';
+      catSearch.setAttribute('aria-label', 'تصفية الأقسام');
+      catSearch.disabled = readOnly;
+      var catSearchLabel = el('label', 'resource-field resource-wide');
+      catSearchLabel.appendChild(el('span', null, 'البحث عن قسم'));
+      catSearchLabel.appendChild(catSearch);
+      controls.category_id.parentNode.classList.add('resource-wide');
+      form.insertBefore(catSearchLabel, controls.category_id.parentNode);
+      catSearch.addEventListener('input', function () {
+        var selected = controls.category_id.value;
+        var words = normalize(catSearch.value).split(/\s+/).filter(Boolean);
+        controls.category_id.innerHTML = '';
+        var blank = el('option', null, 'اختر…'); blank.value = ''; controls.category_id.appendChild(blank);
+        options.forEach(function (option) {
+          if (String(option.value) !== selected && !words.every(function (w) { return normalize(option.label).indexOf(w) !== -1; })) return;
+          var o = el('option', null, option.label); o.value = option.value; controls.category_id.appendChild(o);
+        });
+        controls.category_id.value = selected;
+      });
+      var labels = {level:'المستوى', subject:'المادة', resource_type:'نوع المورد', period:'الفترة'};
+      Object.keys(labels).forEach(function (key) { field(key, labels[key], r.options[key], item.metadata[key]); });
+      field('season', 'الموسم الدراسي', null, item.metadata.season).placeholder = '2026-2027';
+      field('has_correction', 'هل أرفقت التصحيح؟', [{value:'true',label:'نعم، مرفق'}, {value:'false',label:'لا، غير مرفق'}], item.metadata.has_correction);
+      field('is_premium', 'الوصول للمورد', [{value:'false',label:'مجاني'}, {value:'true',label:'VIP'}], item.is_premium);
+      var accessNote = el('p', 'resource-attachment');
+      form.appendChild(accessNote);
+      function categoryAccessNote() {
+        var current = cats[controls.category_id.value], seen = {}, locked = false, hidden = false;
+        while (current && !seen[current.id]) {
+          seen[current.id] = true; locked = locked || !!current.is_premium; hidden = hidden || !current.is_visible; current = cats[current.parent_id];
+        }
+        accessNote.textContent = hidden ? 'القسم مخفي عن المستخدمين. اختر قسمًا ظاهرًا للنشر.' : locked ? 'هذا القسم حصري: يتطلب المورد اشتراك VIP حتى عند اختيار مجاني.' : '';
+        accessNote.hidden = !accessNote.textContent;
+      }
+      controls.category_id.addEventListener('change', categoryAccessNote); categoryAccessNote();
+      if (!item.id || (!item.telegram_file_id && /^https?:\/\//.test(item.link))) {
+        field('link', 'رابط المورد', null, item.link, 'url').required = true;
+      } else {
+        form.appendChild(el('p', 'resource-attachment', '📎 المرفق محفوظ لدى البوت.'));
+      }
+      field('article_url', 'رابط المقال أو الشرح المرتبط', null, item.metadata.article_url, 'url').placeholder = 'https://www.escuila.info/…';
+      field('description', 'وصف مختصر', null, item.metadata.description, 'textarea').maxLength = 600;
+      if (!readOnly) {
+        form.appendChild(resourceButton('إنشاء اسم من بيانات البطاقة', 'secondary-btn resource-title-suggestion', function () {
+          if (!controls.level.value || !controls.subject.value || !controls.resource_type.value) { showToast('اختر المستوى والمادة ونوع المورد أولًا'); return; }
+          controls.name.value = [controls.resource_type.value + ' ' + controls.subject.value, controls.level.value, controls.period.value, controls.season.value].filter(Boolean).join(' — ');
+          showToast('اقترحنا اسمًا؛ راجعه ثم احفظ البطاقة');
+        }));
+      }
+      var error = el('p', 'resource-error');
+      error.setAttribute('role', 'alert'); error.hidden = true;
+      form.appendChild(error);
+      var actions = el('div', 'resource-actions');
+      var save = resourceButton('حفظ المسودة', 'secondary-btn', function () { submit(false); });
+      var publish = resourceButton(item.target_file_id ? 'حفظ التعديلات في المكتبة' : 'نشر في المكتبة', 'primary-btn', function () { submit(true); });
+      if (!readOnly) { actions.appendChild(save); actions.appendChild(publish); }
+      form.appendChild(actions);
+      if (!readOnly && item.id) {
+        var confirmed = false;
+        var archive = resourceButton('أرشفة المسودة', 'link-btn resource-archive', function () {
+          if (!confirmed) { confirmed = true; archive.textContent = 'تأكيد أرشفة المسودة'; return; }
+          archive.disabled = true;
+          apiFetch('/api/admin/resource/' + item.id, { method:'POST', body:{action:'archive',version:item.version} }).then(function () {
+            showToast('حُفظت المسودة في الأرشيف'); goBack();
+          }).catch(function (e) { archive.disabled = false; error.textContent = e.message; error.hidden = false; });
+        });
+        form.appendChild(archive);
+      }
+      if (readOnly) form.appendChild(el('p', 'detail-note', item.status === 'published' ? 'هذه المسودة منشورة. افتح المورد من المكتبة لإنشاء مراجعة جديدة.' : 'هذه المسودة محفوظة في الأرشيف.'));
+      form.addEventListener('submit', function (e) { e.preventDefault(); submit(false); });
+      host.appendChild(form);
+      function submit(approve) {
+        if (readOnly || save.disabled || !form.reportValidity()) return;
+        error.hidden = true; save.disabled = true; publish.disabled = true;
+        var data = {name:controls.name.value, category_id:controls.category_id.value ? Number(controls.category_id.value) : null, is_premium:controls.is_premium.value === 'true', metadata:{}};
+        if (controls.link) data.link = controls.link.value;
+        ['level','subject','resource_type','period','season','article_url','description'].forEach(function (key) { data.metadata[key] = controls[key].value; });
+        data.metadata.has_correction = controls.has_correction.value === '' ? null : controls.has_correction.value === 'true';
+        var begin = item.id ? Promise.resolve({item:item}) : apiFetch('/api/admin/resource-create', {method:'POST', body:{name:data.name,link:data.link}});
+        begin.then(function (created) {
+          item = created.item; top.id = item.id;
+          return apiFetch('/api/admin/resource/' + item.id, {method:'POST',body:{action:'save',version:item.version,data:data}});
+        }).then(function (saved) {
+          item = saved.item;
+          if (!approve) { showToast('حُفظت المسودة'); save.disabled = false; publish.disabled = false; return; }
+          return apiFetch('/api/admin/resource/' + item.id, {method:'POST',body:{action:'publish',version:item.version}}).then(function (published) {
+            showToast('حُفظ المورد في المكتبة');
+            return apiFetch('/api/resource-card/' + published.file_id).then(function (updated) {
+              state.files = state.files.filter(function (f) { return f.id !== updated.file.id; });
+              state.files.push(updated.file); state.fileById[updated.file.id] = updated.file;
+              if (state.stack[state.stack.length - 1] === top) { state.stack.pop(); push({type:'file',file:updated.file}); }
+            }).catch(function () {
+              host.innerHTML = '';
+              host.appendChild(el('p', 'detail-note', 'نُشر المورد. ستُحدَّث المكتبة العامة مع المزامنة الدورية.'));
+              host.appendChild(resourceButton('العودة للوارد', 'secondary-btn', function () { goBack(); }));
+            });
+          });
+        }).catch(function (e) {
+          save.disabled = false; publish.disabled = false; error.textContent = e.message; error.hidden = false;
+        });
+      }
+    }).catch(function (e) { host.innerHTML = ''; host.appendChild(el('p', 'resource-error', e.message)); });
+  }
+
   function renderAdmin() {
     viewEl.innerHTML = '';
     var refresh = el('button', 'link-btn');
@@ -2461,6 +2724,13 @@
     quick.appendChild(uBtn);
     quick.appendChild(lBtn);
     viewEl.appendChild(quick);
+
+    var organize = el('div', 'resource-entry');
+    organize.appendChild(el('div', 'resource-kicker', 'إدارة المحتوى'));
+    organize.appendChild(el('h2', null, 'كل مورد يبدأ ببطاقة واضحة'));
+    organize.appendChild(el('p', null, 'اجمع الملفات في الوارد، راجع بياناتها ثم انشرها في المكتبة.'));
+    organize.appendChild(resourceButton('فتح وارد الملفات', 'primary-btn', function () { push({ type: 'adminResources', mode: 'draft', query: '', offset: 0 }); }));
+    viewEl.insertBefore(organize, wrap);
 
     apiFetch('/api/admin/stats').then(function (r) {
       var st = r.stats;
