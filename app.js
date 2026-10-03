@@ -33,7 +33,10 @@
     startParamDone: false,
     api: '',
     me: null,
-    online: false
+    online: false,
+    sessionStatus: 'checking',
+    sessionGeneration: 0,
+    sessionRetryTimer: null
   };
 
   var viewEl = document.getElementById('view');
@@ -853,22 +856,30 @@
     opts = opts || {};
     opts.headers = opts.headers || {};
     opts.headers['X-Telegram-InitData'] = (tg && tg.initData) || '';
-    // بعض النفقات المجانية (ngrok) تطلب هذه الترويسة لتجاوز صفحة تحذير المتصفح
-    opts.headers['ngrok-skip-browser-warning'] = '1';
+    // Cloudflare needs no extra header. Avoid unnecessary cross-origin headers.
+    if (/^https:\/\/[^/]+\.(ngrok-free\.app|ngrok\.app|ngrok\.io)(\/|$)/i.test(state.api)) {
+      opts.headers['ngrok-skip-browser-warning'] = '1';
+    }
     if (opts.body !== undefined && typeof opts.body !== 'string') {
       opts.body = JSON.stringify(opts.body);
       opts.headers['Content-Type'] = 'application/json';
     }
+    var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    var timeout = controller && /^\/api\/(session|me)$/.test(path) ? setTimeout(function () { controller.abort(); }, 8000) : null;
+    if (controller) opts.signal = controller.signal;
     return fetch(state.api + path, opts).then(function (r) {
-      return r.json().then(function (j) {
+      return r.json().catch(function () {
+        throw new Error('رابط اتصال البوت لا يستجيب بشكل صحيح');
+      }).then(function (j) {
         if (!r.ok || j.ok === false) {
           var err = new Error((j && j.error) || 'تعذر تنفيذ العملية');
           err.code = j && j.code;
+          err.status = r.status;
           throw err;
         }
         return j;
       });
-    });
+    }).then(function (result) { clearTimeout(timeout); return result; }, function (error) { clearTimeout(timeout); throw error; });
   }
 
   var ME_CACHE_KEY = 'escuila_me_v1';
@@ -907,40 +918,62 @@
     } catch (e) { cb(null); }
   }
 
-  function initSession(attempt) {
+  function initSession(attempt, generation) {
+    if (attempt === undefined) {
+      attempt = 1;
+      generation = ++state.sessionGeneration;
+      clearTimeout(state.sessionRetryTimer);
+      state.sessionStatus = 'checking';
+      state.online = false;
+      updateAccountNavigation();
+    }
+    if (generation !== state.sessionGeneration) return;
     if (!state.api || !tg || !tg.initData) {
-      // الوضع الثابت — نحاول استرجاع بيانات محفوظة
+      state.sessionStatus = !tg || !tg.initData ? 'telegram' : 'unconfigured';
       loadMeCache(function (cached) {
-        if (cached) { state.me = cached; state.online = false; render(); }
+        if (generation !== state.sessionGeneration) return;
+        state.me = cached;
+        state.online = false;
+        updateAccountNavigation();
+        render();
       });
       return;
     }
-    if (attempt === undefined) attempt = 1;
     apiFetch('/api/session', { method: 'POST' }).then(function (r) {
+      if (generation !== state.sessionGeneration) return;
+      if (!r.user) throw new Error('لم تصل بيانات الحساب');
       state.me = r.user || null;
       state.online = !!state.me;
+      state.sessionStatus = 'ready';
       if (state.me) saveMeCache(state.me); // حفظ للاستخدام offline
       onSessionReady();
-    }).catch(function () {
+    }).catch(function (error) {
+      if (generation !== state.sessionGeneration) return;
       // الخادم قد يكون مشغولاً لحظياً (نفق الهاتف) — 3 محاولات بتراجع زمني
-      if (attempt < 3) {
-        setTimeout(function () { initSession(attempt + 1); }, 1500 * attempt);
+      if (attempt < 3 && error.status !== 401 && error.status !== 403) {
+        state.sessionRetryTimer = setTimeout(function () { initSession(attempt + 1, generation); }, 1500 * attempt);
       } else {
         // فشل الاتصال — نستخدم الكاش المحفوظ (offline mode)
         loadMeCache(function (cached) {
-          if (cached) {
-            state.me = cached;
-            state.online = false;
-            render();
-          }
+          if (generation !== state.sessionGeneration) return;
+          state.me = cached;
+          state.online = false;
+          state.sessionStatus = error.status === 401 || error.status === 403 ? 'expired' : 'offline';
+          updateAccountNavigation();
+          render();
         });
       }
     });
   }
 
-  function onSessionReady() {
+  function updateAccountNavigation() {
     var adminTab = document.querySelector('#bottombar .tab[data-tab="admin"]');
-    if (adminTab) adminTab.hidden = !(state.me && state.me.is_admin);
+    if (adminTab) adminTab.hidden = !(state.online && state.me && state.me.is_admin);
+    updateTabbar();
+  }
+
+  function onSessionReady() {
+    updateAccountNavigation();
     if (state.me && state.me.is_admin) showToast('وضع المدير مفعّل');
     render();
   }
@@ -948,20 +981,68 @@
   // تحديث صامت لبيانات المستخدم (VIP / نقاط) عند العودة للصفحة الرئيسية
   // يحل مشكلة: المستخدم يدفع في البوت ثم يعود للتطبيق ولا يرى التفعيل
   function refreshMe() {
-    if (!state.api || !tg || !tg.initData) return;
+    if (!state.api || !tg || !tg.initData || state.sessionStatus === 'checking') return;
+    var generation = state.sessionGeneration;
     apiFetch('/api/me').then(function (r) {
+      if (generation !== state.sessionGeneration) return;
       if (!r.user) return;
       var before = JSON.stringify(state.me);
       state.me = r.user;
       state.me.is_admin = r.user.is_admin || false;
       state.online = true;
+      state.sessionStatus = 'ready';
+      updateAccountNavigation();
       saveMeCache(state.me); // تحديث الكاش
       // إذا تغير VIP أعد رسم الشاشة الحالية
       var top = state.stack[state.stack.length - 1].type;
-      if (before !== JSON.stringify(state.me) && ['home', 'vip', 'vipFiles', 'file'].indexOf(top) !== -1) render();
-    }).catch(function () {
-      if (state.online) { state.online = false; render(); }
+      if ((before !== JSON.stringify(state.me) || document.querySelector('.account-status')) && ['home', 'vip', 'vipFiles', 'file'].indexOf(top) !== -1) render();
+    }).catch(function (error) {
+      if (generation !== state.sessionGeneration) return;
+      state.online = false;
+      state.sessionStatus = error.status === 401 ? 'expired' : 'offline';
+      updateAccountNavigation();
+      var top = state.stack[state.stack.length - 1].type;
+      if (top === 'home' || top === 'vip') render();
     });
+  }
+
+  function retryAccountSession() {
+    state.sessionStatus = 'checking';
+    render();
+    // A restarted phone tunnel has a new URL: read the latest settings first.
+    var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    var timeout = controller ? setTimeout(function () { controller.abort(); }, 8000) : null;
+    fetch('data/settings.json?_=' + Date.now(), {cache: 'no-store', signal: controller ? controller.signal : undefined}).then(function (r) {
+      if (!r.ok) throw new Error('settings');
+      return r.json();
+    }).then(function (settings) { state.api = (settings.api || '').replace(/\/$/, ''); })
+      .catch(function () {}).then(function () { clearTimeout(timeout); initSession(); });
+  }
+
+  function accountStatusPanel() {
+    if (state.sessionStatus === 'ready' && !(state.me && state.me.is_admin)) return null;
+    var panel = el('section', 'account-status');
+    panel.setAttribute('aria-label', 'اتصال الحساب');
+    panel.setAttribute('aria-live', 'polite');
+    var info = el('div', 'account-status-info');
+    var title = 'جارٍ ربط حسابك…', note = 'ستظهر عضويتك بعد الاتصال بالبوت.';
+    if (state.sessionStatus === 'ready') { title = 'حساب المدير متصل'; note = 'إدارة الملفات والموارد جاهزة.'; }
+    else if (state.sessionStatus === 'telegram') { title = 'تصفح المكتبة متاح'; note = 'افتح التطبيق من زر البوت لربط حسابك.'; }
+    else if (state.sessionStatus === 'unconfigured') { title = 'ربط الحساب غير جاهز'; note = 'رابط اتصال البوت يحتاج تحديثًا.'; }
+    else if (state.sessionStatus === 'expired') { title = 'أعد فتح التطبيق من البوت'; note = 'انتهت جلسة الحساب أو تعذّر التحقق منها.'; }
+    else if (state.sessionStatus === 'offline') { title = 'تعذّر الاتصال بحسابك'; note = 'المكتبة متاحة. العضوية والإدارة تحتاجان اتصال البوت.'; }
+    info.appendChild(el('strong', null, title));
+    info.appendChild(el('p', null, note));
+    panel.appendChild(info);
+    if (state.sessionStatus !== 'checking') {
+      var label = state.sessionStatus === 'ready' ? 'الإدارة' : state.sessionStatus === 'telegram' || state.sessionStatus === 'expired' ? 'فتح البوت' : 'إعادة الاتصال';
+      panel.appendChild(resourceButton(label, 'account-status-action', function () {
+        if (state.sessionStatus === 'ready') switchTab('admin', {noFocus: true});
+        else if (state.sessionStatus === 'telegram' || state.sessionStatus === 'expired') openBotChat();
+        else retryAccountSession();
+      }));
+    }
+    return panel;
   }
 
   function sectionTitle(text, trailing) {
@@ -1064,6 +1145,11 @@
     else if (top.type === 'vipFiles') renderVipFiles();
     else if (top.type === 'results') renderResults(top.source, top.q, top.mode);
     else if (top.type === 'locked') renderLockedInfo(top.cat);
+
+    if (top.type === 'home' || top.type === 'vip') {
+      var connection = accountStatusPanel();
+      if (connection) viewEl.insertBefore(connection, viewEl.firstChild);
+    }
 
     // الكيبورد يتبقى مفتوحاً فقط داخل شاشة البحث
     if (top.type !== 'search' && document.activeElement === searchEl) searchEl.blur();

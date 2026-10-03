@@ -4,6 +4,11 @@ button, input, select { font: inherit; }
 button { touch-action: manipulation; }
 button:focus-visible, select:focus-visible { outline: 3px solid var(--link); outline-offset: 3px; }
 body { background: var(--canvas); }
+.account-status { display: flex; align-items: center; gap: 12px; padding: 13px 14px; margin-bottom: 16px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); color: var(--text); }
+.account-status-info { flex: 1; min-width: 0; }
+.account-status strong { font-size: 13px; }
+.account-status p { font-size: 12px; line-height: 1.6; color: var(--hint); margin: 4px 0 0; }
+.account-status-action { flex: 0 0 auto; border: 0; border-radius: 10px; padding: 9px 12px; min-height: 42px; background: var(--brand-soft); color: var(--link); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
 #topbar { padding: calc(env(safe-area-inset-top, 0px) + 16px) 20px 14px; background: var(--surface); border-bottom: 1px solid var(--border); }
 #brand { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; text-align: right; }
 #logo { height: 31px; max-width: 142px; }
