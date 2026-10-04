@@ -1,0 +1,23 @@
+/* Shared mobile refinements and category administration. */
+.category-tools { display:grid; grid-template-columns:minmax(0,1fr) minmax(125px,.55fr); gap:10px; margin-bottom:12px; }
+.category-list { display:grid; gap:10px; }
+.category-row { display:grid; gap:6px; width:100%; text-align:start; background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:var(--radius-lg); padding:16px; cursor:pointer; }
+.category-row:hover { border-color:var(--btn); }
+.category-row strong { font-size:16px; }
+.section-title .primary-btn { width:auto; flex:0 0 auto; max-width:60%; padding:10px 16px; margin-top:0; margin-inline-start:auto; white-space:nowrap; }
+.category-path { color:var(--hint); font-size:13px; line-height:1.7; overflow-wrap:anywhere; }
+.category-status { width:fit-content; border-radius:20px; padding:4px 10px; font-size:12px; background:var(--brand-soft); color:var(--link); }
+.draft-recovery { grid-column:1/-1; background:var(--brand-soft); border:1px solid var(--border); padding:14px; border-radius:var(--radius-md); }
+.draft-recovery p { margin:0 0 10px; line-height:1.7; }
+.draft-recovery button { margin-inline-end:8px; }
+.category-form .resource-editor-note { grid-column:1/-1; }
+.admin-input, .resource-field .admin-input { font-size:16px; max-width:100%; }
+.resource-error button { display:block; margin-top:10px; }
+.category-workspace, .resource-form, .resource-editor, .content-resource-row { min-width:0; }
+button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline:3px solid var(--link); outline-offset:3px; }
+.category-row, .primary-btn, .secondary-btn, .link-btn, #page-back, #clearSearch { min-height:44px; }
+.icon-btn { min-width:44px; min-height:44px; }
+.content-select-wrap { display:flex; align-items:center; justify-content:center; flex:0 0 44px; min-height:44px; cursor:pointer; }
+@media(max-width:380px) { .category-tools { grid-template-columns:1fr; } .resource-actions { flex-wrap:wrap; } }
+@media(prefers-color-scheme:dark) { body:not(.telegram-theme) { --bg:#181827; --text:#efedf7; --hint:#b2acc4; --secondary-bg:#202034; --surface:#222235; --canvas:#181827; --border:rgba(200,192,230,.18); --brand-soft:rgba(160,133,240,.14); --link:#b79bff; --btn:#825bdb; } }
+@media(prefers-reduced-motion:reduce) { *, *::before, *::after { animation-duration:.01ms !important; transition-duration:.01ms !important; scroll-behavior:auto !important; } }
