@@ -84,6 +84,7 @@
   /* ─── unified icon system (inline SVG, stroke style) ─── */
 
   var ICONS = {
+    plus: '<path d="M12 5v14M5 12h14"/>',
     home: '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>',
     library: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
     search: '<circle cx="11" cy="11" r="7"/><path d="m21 21-4.35-4.35"/>',
@@ -325,15 +326,16 @@
   }
 
   function catById(id) {
-    return state.cats.find(function (c) { return c.id === id; }) || null;
+    return state.catById ? state.catById[id] || null : state.cats.find(function (c) { return c.id === id; }) || null;
   }
 
   function filesIn(catId) {
-    return state.files.filter(function (f) { return f.c === catId; });
+    return state.filesByCat ? state.filesByCat[catId] || [] : state.files.filter(function (f) { return f.c === catId; });
   }
 
   // total files in a category subtree (direct + nested)
   function fileCount(catId) {
+    if(state.catCounts&&state.catCounts[catId]!==undefined)return state.catCounts[catId];
     var n = filesIn(catId).length;
     childrenOf(catId).forEach(function (s) { n += fileCount(s.id); });
     return n;
@@ -367,11 +369,11 @@
   // all matches, best (earliest position) first — the view decides how many
   // to show and whether to tell the user about the rest
   function searchFiles(q) {
-    var scored = [];
+    var scored = [],words=q.split(/\s+/).filter(Boolean).slice(0,8);
     state.files.forEach(function (f) {
-      var n = normalize([f.n, f.lv, f.sb, f.meta && f.meta.resource_type, f.meta && f.meta.period, f.meta && f.meta.season].filter(Boolean).join(' '));
-      var idx = n.indexOf(q);
-      if (idx === -1) return;
+      var n = f._search || normalize([f.n, f.lv, f.sb, f.meta && f.meta.resource_type, f.meta && f.meta.unit, f.meta && f.meta.period, f.meta && f.meta.season].filter(Boolean).join(' '));
+      if(!words.every(function(w){return n.indexOf(w)!==-1;}))return;
+      var idx = Math.max(0,n.indexOf(words[0]||q));
       scored.push({ f: f, score: idx });
     });
     scored.sort(function (a, b) { return a.score - b.score; });
@@ -384,6 +386,12 @@
     }).slice(0, 20);
   }
 
+  function rebuildIndex(){
+    state.catById={};state.filesByCat={};state.catCounts={};state.fileById={};
+    state.cats.forEach(function(c){state.catById[c.id]=c;state.catCounts[c.id]=0;});
+    state.files.forEach(function(f){state.fileById[f.id]=f;(state.filesByCat[f.c]||(state.filesByCat[f.c]=[])).push(f);var seen={},cat=f.c;while(state.catById[cat]&&!seen[cat]){seen[cat]=true;state.catCounts[cat]=(state.catCounts[cat]||0)+1;cat=state.catById[cat].parent;}var m=f.meta||{};f._search=normalize([f.n,f.lv,f.sb,m.resource_type,m.unit,m.period,m.season].filter(Boolean).join(' '));});
+  }
+
   /* ─── file metadata: type / access / level / subject ─── */
 
   var TYPES = [
@@ -392,17 +400,23 @@
     { key: 'img', label: 'صورة', icon: 'image' },
     { key: 'vid', label: 'فيديو', icon: 'video' },
     { key: 'aud', label: 'صوت', icon: 'audio' },
-    { key: 'gen', label: 'ملف', icon: 'file' }
+    { key: 'gen', label: 'ملف', icon: 'file' },
+    { key: 'article', label: 'مقال', icon: 'fileText' }
   ];
 
   function typeOf(f) {
     var n = (f.n || '').toLowerCase();
+    if(websiteResource(f))return TYPES[6];
+    if (f.mt === 'photo' || /\.(jpe?g|png|webp|gif)\b|صورة/.test(n)) return TYPES[2];
+    if (f.mt === 'video') return TYPES[3];
+    if (f.mt === 'audio' || f.mt === 'voice') return TYPES[4];
     if (/\.pdf|\bpdf\b|فرض|امتحان|مراجعة/.test(n)) return TYPES[0];
-    if (/\.doc|\.docx|تلخيص|مذكرة|درس/.test(n)) return TYPES[1];
+    if (/\.docx?\b/.test(n)) return TYPES[1];
     if (/\.jpg|\.jpeg|\.png|صورة/.test(n)) return TYPES[2];
     if (/\.mp4|\.avi|فيديو/.test(n)) return TYPES[3];
     if (/\.mp3|صوت|تسميع/.test(n)) return TYPES[4];
-    return TYPES[5];
+    if (/\.(zip|rar|xlsx?|pptx?)\b/.test(n)) return TYPES[5];
+    return TYPES[0];
   }
 
   // Access flags describe free and VIP resources; the API verifies permissions.
@@ -496,13 +510,14 @@
       if (ft.rk && (f.meta || {}).resource_type !== ft.rk) return false;
       if (ft.period && (f.meta || {}).period !== ft.period) return false;
       if (ft.season && (f.meta || {}).season !== ft.season) return false;
+      if (ft.unit && (f.meta || {}).unit !== ft.unit) return false;
       return true;
     });
   }
 
   function filtersActive() {
     var ft = state.filters;
-    return !!(ft.lv || ft.sb || ft.tp || ft.ac || ft.rk || ft.period || ft.season);
+    return !!(ft.lv || ft.sb || ft.tp || ft.ac || ft.rk || ft.period || ft.season || ft.unit);
   }
 
   /* ─── telegram helpers ─── */
@@ -629,6 +644,51 @@
       if (btn) btn.disabled = false;
       resourceAccessError(error,f,function () { requestExternalOpen(f,part,btn); });
     });
+  }
+
+  var activeReader = null, readerScript;
+  function loadReader() {
+    if (window.EscuilaReader) return Promise.resolve();
+    if (!readerScript) readerScript = new Promise(function (resolve, reject) {
+      var css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'reading.css?v=20261004-product1'; document.head.appendChild(css);
+      var script = document.createElement('script'); script.src = 'reading.js?v=20261004-product1'; script.onload = resolve;
+      script.onerror = function () { readerScript = null; script.remove(); reject(new Error('reader unavailable')); }; document.head.appendChild(script);
+    });
+    return readerScript;
+  }
+
+  function requestRead(f, btn) {
+    if (!state.api || !tg || !tg.initData) { showToast('للقراءة، افتح Escuila من زر التطبيق في تيليجرام.'); return; }
+    if (btn) btn.disabled = true;
+    apiFetch('/api/file-view/' + f.id + '?read=1').then(function (resource) {
+      if (resource.mode === 'web') { openExternalUrl(resource.url); return; }
+      recordRecent(f.id);
+      push({type:'reader', file:f, resource:resource});
+    }).catch(function (error) { resourceAccessError(error, f, function () { requestRead(f,btn); }); })
+      .then(function () { if (btn) btn.disabled = false; });
+  }
+
+  function renderReader(top) {
+    viewEl.innerHTML = '';
+    var wait = el('div','reader-start','نجهّز ملفك للقراءة…'); viewEl.appendChild(wait);
+    loadReader().then(function () {
+      if (state.stack[state.stack.length-1] !== top) return;
+      wait.remove();
+      activeReader = window.EscuilaReader.mount({host:viewEl,id:String(top.file.id),name:top.file.n,
+        url:state.api+top.resource.url,format:top.resource.format,headers:{'X-Telegram-InitData':tg.initData},tg:tg,
+        back:goBack,retry:function () { if(top.preview)render();else requestReaderRetry(top); },resume:!top.preview,
+        download:top.preview?null:function () { requestDirectDownload(top.file); },share:top.preview?null:function () { shareFile(top.file); },
+        onError:function (error) { if (!top.preview && (error.status === 401 || error.status === 403)) {
+          apiFetch('/api/file-view/'+top.file.id+'?read=1').catch(function (e) {
+            if (state.stack[state.stack.length-1]===top) resourceAccessError(e,top.file,function(){requestRead(top.file);});
+          });
+        }}
+      });
+    }).catch(function () { wait.textContent='تعذّر تجهيز القارئ. تحقق من اتصالك.';viewEl.appendChild(resourceButton('إعادة المحاولة','primary-btn',function(){render();})); });
+  }
+  function requestReaderRetry(top) {
+    apiFetch('/api/file-view/'+top.file.id+'?read=1').then(function (resource) { if(state.stack[state.stack.length-1]!==top)return;top.resource=resource;render(); })
+      .catch(function(error){resourceAccessError(error,top.file,function(){requestReaderRetry(top);});});
   }
 
   function shareFile(f) {
@@ -958,7 +1018,7 @@
   function onSessionReady() {
     updateAccountNavigation();
     if (state.me && state.me.is_admin) showToast('وضع المدير مفعّل');
-    render();
+    if(state.stack[state.stack.length-1].type!=='reader')render();
   }
 
   // تحديث صامت لبيانات المستخدم (VIP / نقاط) عند العودة للصفحة الرئيسية
@@ -1038,11 +1098,16 @@
   // renders long lists in batches with a "show more" control
   function renderBatched(container, items, itemBuilder, batch) {
     batch = batch || 40;
+    var top = state.stack[state.stack.length-1];
+    var signature=items.length+':'+(items[0]&&items[0].id)+':'+(items[items.length-1]&&items[items.length-1].id);
+    if(top._batchKey!==signature){top._batchKey=signature;top._shown=0;}
+    var firstBatch = Math.max(batch, top._shown || 0);
     var shown = 0;
     function appendNext() {
-      var slice = items.slice(shown, shown + batch);
+      var slice = items.slice(shown, shown + (shown ? batch : firstBatch));
       slice.forEach(function (it) { container.appendChild(itemBuilder(it)); });
       shown += slice.length;
+      top._shown = shown;
       if (shown < items.length) {
         var more = el('button', 'secondary-btn more-btn',
           'عرض المزيد (' + (items.length - shown) + ' متبقٍ)');
@@ -1072,6 +1137,7 @@
     clearTimeout(state.searchTimer);
     haptic();
     state.tab = tab;
+    searchEl.value=tab==='search'?state.query:'';clearEl.hidden=!searchEl.value;
     state.stack = [{ type: TAB_ROOTS[tab] }];
     render();
     updateTabbar();
@@ -1081,8 +1147,10 @@
   }
 
   function render() {
+    if (activeReader) { activeReader.destroy(); activeReader = null; }
     var top = state.stack[state.stack.length - 1];
     var depth = state.stack.length;
+    document.body.classList.toggle('content-manager-mode',top.type.indexOf('admin')===0||top.type==='resourceEditor');
 
     var pageNav = document.getElementById('page-nav');
     pageNav.hidden = depth < 2;
@@ -1120,6 +1188,7 @@
     else if (top.type === 'resourceEditor') renderResourceEditor(top);
     else if (top.type === 'cat') renderCat(top.id);
     else if (top.type === 'file') renderFileDetails(top.file);
+    else if (top.type === 'reader') renderReader(top);
     else if (top.type === 'membership') renderMembershipPanel(viewEl, top.error, top.retry);
     else if (top.type === 'resourceError') renderResourceError(top);
     else if (top.type === 'vip') renderVip();
@@ -1134,9 +1203,11 @@
 
     // الكيبورد يتبقى مفتوحاً فقط داخل شاشة البحث
     if (top.type !== 'search' && document.activeElement === searchEl) searchEl.blur();
+    if (top.restoreScroll) { top.restoreScroll = false; requestAnimationFrame(function () { viewEl.scrollTop = top.scrollTop || 0; }); }
   }
 
   function push(view) {
+    state.stack[state.stack.length-1].scrollTop = viewEl.scrollTop;
     state.stack.push(view);
     render();
   }
@@ -1144,6 +1215,7 @@
   function goBack() {
     if (state.stack.length > 1) {
       state.stack.pop();
+      state.stack[state.stack.length-1].restoreScroll = true;
       render();
     }
   }
@@ -1248,7 +1320,9 @@
     shortcuts.appendChild(actionButton(me && me.vip ? 'مساحتي VIP' : 'اكتشف VIP', 'gem', 'quick-action quick-vip', function () { switchTab('vip', { noFocus: true }); }));
     viewEl.appendChild(shortcuts);
 
-    var last = filesByIds(lsGet(RECENT_KEY, []))[0];
+    var progress = lsGet('escuila_reading_v1', {});
+    var readingIds = Object.keys(progress).sort(function(a,b){return (progress[b].t||0)-(progress[a].t||0);});
+    var last = filesByIds(readingIds).filter(function(f){return !websiteResource(f)&&typeOf(f).key==='pdf';})[0] || filesByIds(lsGet(RECENT_KEY, []))[0];
     if (last) {
       var cont = el('button', 'continue-card');
       cont.type = 'button';
@@ -1256,13 +1330,15 @@
       var cinfo = el('div', 'fcard-info');
       var clabel = el('div', 'continue-label');
       clabel.appendChild(svgIcon('clock', 13));
-      clabel.appendChild(el('span', null, 'أكمل من حيث توقفت'));
+      var saved = !websiteResource(last)&&typeOf(last).key==='pdf' ? progress[String(last.id)] : null;
+      clabel.appendChild(el('span', null, saved ? 'أكمل من حيث توقفت' : 'آخر ما فتحته'));
       cinfo.appendChild(clabel);
       cinfo.appendChild(el('div', 'fcard-name', last.n));
+      if(saved)cinfo.appendChild(el('span','fcard-meta','الصفحة '+saved.page+' من '+saved.total));
       cont.appendChild(cinfo);
       cont.appendChild(chevEl());
       cont.addEventListener('click', function () {
-        openFileDetails(last);
+        if(saved&&!websiteResource(last)&&typeOf(last).key==='pdf')requestRead(last,cont);else openFileDetails(last);
       });
       viewEl.appendChild(cont);
     }
@@ -1283,7 +1359,7 @@
       state.filters = { lv: level, sb: sb, tp: '', ac: '' };
       push({ type: 'results', source: 'all' });
     });
-    if (subjects) viewEl.appendChild(subjects);
+    if (subjects) viewEl.insertBefore(subjects, shortcuts);
 
     var popular = learningFiles(state.files).filter(function (f) { return f.k > 0; }).sort(function (a, b) { return b.k - a.k; }).slice(0, 6);
     if (popular.length) viewEl.appendChild(hScrollRow('الأكثر استخداماً', popular, function () {
@@ -1493,12 +1569,13 @@
 
   function fillFileList(list, files) {
     list.innerHTML = '';
-    files.forEach(function (f) {
+    var matched=files.filter(function (f) {
       var access = fileAccess(f);
-      if (state.catFilter === 'free' && access !== 'free') return;
-      if (state.catFilter === 'rest' && access === 'free') return;
-      list.appendChild(fileRow(f));
+      if (state.catFilter === 'free' && access !== 'free') return false;
+      if (state.catFilter === 'rest' && access === 'free') return false;
+      return true;
     });
+    renderBatched(list,matched,fileRow,20);
     if (!list.children.length) {
       list.appendChild(emptyBox('لا توجد ملفات مطابقة هنا.', 'folder'));
     }
@@ -1561,6 +1638,7 @@
     }
     if (files.length) {
       viewEl.appendChild(el('div', 'section-title', 'الملفات'));
+      files=orderedFiles(files,true);
       var list = el('div', 'fgrid');
       renderBatched(list, files, fileRow, 20);
       viewEl.appendChild(list);
@@ -1598,6 +1676,16 @@
     return bar;
   }
 
+  function orderedFiles(files, search) {
+    var top=state.stack[state.stack.length-1],sort=top.sort||(search?'relevance':top.mode==='popular'?'popular':'newest');
+    var control=el('label','library-sort');control.appendChild(el('span',null,'ترتيب الملفات'));var select=el('select');select.setAttribute('aria-label','ترتيب الملفات');
+    var choices=search?[['relevance','الأقرب للبحث']]:[];choices=choices.concat([['newest','الأحدث'],['popular','الأكثر قراءة'],['name','الاسم']]);
+    choices.forEach(function(pair){var op=el('option',null,pair[1]);op.value=pair[0];select.appendChild(op);});select.value=sort;select.addEventListener('change',function(){top.sort=select.value;top._shown=0;render();});control.appendChild(select);viewEl.appendChild(control);
+    if(sort==='name')files.sort(function(a,b){return a.n.localeCompare(b.n,'ar');});
+    else if(sort==='popular')files.sort(function(a,b){return (b.k||0)-(a.k||0)||b.id-a.id;});
+    else if(sort==='newest')files.sort(function(a,b){return b.id-a.id;});return files;
+  }
+
   /* ─── filtered results view ─── */
 
   function renderResults(source, q, mode) {
@@ -1625,6 +1713,7 @@
       });
     }
     var files = applyFilters(base);
+    if(files.length)files=orderedFiles(files,source==='search');
 
     var refresh = el('button', 'link-btn');
     refresh.type = 'button';
@@ -1673,7 +1762,7 @@
     closeSheet();
     haptic();
 
-    var lvSet = {}, sbSet = {}, tpSet = {}, acSet = {}, rkSet = {}, periodSet = {}, seasonSet = {};
+    var lvSet = {}, sbSet = {}, tpSet = {}, acSet = {}, rkSet = {}, periodSet = {}, seasonSet = {}, unitSet = {};
     baseFiles.forEach(function (f) {
       if (f.lv) lvSet[f.lv] = true;
       if (f.sb) sbSet[f.sb] = true;
@@ -1682,6 +1771,7 @@
       if (f.meta && f.meta.resource_type) rkSet[f.meta.resource_type] = true;
       if (f.meta && f.meta.period) periodSet[f.meta.period] = true;
       if (f.meta && f.meta.season) seasonSet[f.meta.season] = true;
+      if (f.meta && f.meta.unit) unitSet[f.meta.unit] = true;
     });
 
     var sheet = el('div', 'sheet');
@@ -1723,7 +1813,7 @@
       sheet.appendChild(g);
     }
 
-    var draft = { lv: state.filters.lv, sb: state.filters.sb, tp: state.filters.tp, ac: state.filters.ac, rk: state.filters.rk || '', period: state.filters.period || '', season: state.filters.season || '' };
+    var draft = { lv: state.filters.lv, sb: state.filters.sb, tp: state.filters.tp, ac: state.filters.ac, rk: state.filters.rk || '', period: state.filters.period || '', season: state.filters.season || '', unit: state.filters.unit || '' };
     var draftFiles = function () { return baseFiles.filter(function (f) {
       if (draft.lv && f.lv !== draft.lv) return false;
       if (draft.sb && f.sb !== draft.sb) return false;
@@ -1732,6 +1822,7 @@
       if (draft.rk && (f.meta || {}).resource_type !== draft.rk) return false;
       if (draft.period && (f.meta || {}).period !== draft.period) return false;
       if (draft.season && (f.meta || {}).season !== draft.season) return false;
+      if (draft.unit && (f.meta || {}).unit !== draft.unit) return false;
       return true;
     }); };
 
@@ -1745,6 +1836,7 @@
     group('المستوى', lvSet, draft, 'lv', function (a, b) { return levelRank(a) - levelRank(b); });
     group('المادة', sbSet, draft, 'sb');
     group('المحتوى', rkSet, draft, 'rk');
+    group('الوحدة', unitSet, draft, 'unit');
     group('الدورة والمرحلة', periodSet, draft, 'period');
     group('الموسم الدراسي', seasonSet, draft, 'season');
     group('النوع', tpSet, draft, 'tp', function (a, b) {
@@ -1810,7 +1902,7 @@
       return;
     }
     var list = el('div', 'fgrid');
-    favs.forEach(function (f) { list.appendChild(fileRow(f)); });
+    renderBatched(list,favs,fileRow,20);
     viewEl.appendChild(list);
     viewEl.appendChild(el('div', 'detail-note', 'لإزالة ملف من المفضلة، افتحه واضغط النجمة مرة أخرى.'));
   }
@@ -1881,7 +1973,7 @@
     shareB.setAttribute('aria-label', 'مشاركة');
     shareB.appendChild(svgIcon('share', 19));
     shareB.addEventListener('click', function () { shareFile(f); });
-    bar.appendChild(shareB);
+    if (opts.share !== false) bar.appendChild(shareB);
 
     // فتح في المتصفح — أيقونة علوية بدل زر أسفل الشاشة (تصميم APK)
     if (opts.external && f.u) {
@@ -1904,77 +1996,42 @@
 
   function renderFileDetails(f) {
     viewEl.innerHTML = '';
-
-    // شريط الأيقونات العلوي (تصميم APK): مفضلة + مشاركة + فتح في المتصفح
-    viewEl.appendChild(topActionBar(f, { external: false }));
-
-    var box = el('div', 'detail-box');
-    box.appendChild(coverEl(f, false));
-
-    box.appendChild(el('div', 'detail-name', f.n));
-
-    var crumb = crumbRow(f.c);
-    if (crumb.children.length) box.appendChild(crumb);
-
-    // بطاقة معلومات الملف — تفاصيل سريعة في شبكة أنيقة (تصميم جديد)
-    var info = el('div', 'file-info-grid');
-    function infoCell(icon, label, value) {
-      var cell = el('div', 'file-info-cell');
-      var head = el('div', 'file-info-label');
-      head.appendChild(svgIcon(icon, 13));
-      head.appendChild(el('span', null, label));
-      cell.appendChild(head);
-      cell.appendChild(el('div', 'file-info-value', value));
-      return cell;
+    viewEl.appendChild(topActionBar(f, {external:false,share:false}));
+    var box=el('article','detail-box file-detail-modern');
+    var heading=el('div','file-detail-heading');heading.appendChild(coverEl(f,false));
+    var title=el('div','file-detail-title');
+    title.appendChild(el('span','file-detail-kind',websiteResource(f)?'مقال تعليمي':typeOf(f).label));
+    title.appendChild(el('h1','detail-name',f.n));
+    var crumb=crumbRow(f.c);if(crumb.children.length)title.appendChild(crumb);
+    heading.appendChild(title);box.appendChild(heading);
+    var exclusive=fileAccess(f)==='vip';
+    box.appendChild(el('span','detail-badge '+(exclusive?'badge-vip':'badge-free'),exclusive?'محتوى حصري':'مجاني'));
+    var meta=f.meta||{};
+    var actions=el('div','file-detail-actions');
+    if(websiteResource(f))actions.appendChild(actionButton('قراءة','bookOpen','primary-btn',function(){requestExternalOpen(f,'file');}));
+    else {
+      var kind=typeOf(f).key;
+      var label={pdf:'قراءة PDF',img:'عرض الصورة',vid:'مشاهدة',aud:'استماع'}[kind]||'فتح الملف';
+      var read=actionButton(label,'bookOpen','primary-btn',function(){if(kind==='pdf'||kind==='img')requestRead(f,read);else requestExternalOpen(f,'file',read);});
+      actions.appendChild(read);
+      actions.appendChild(actionButton('تحميل','download','secondary-btn',function(){requestDirectDownload(f);}));
     }
-    info.appendChild(infoCell('fileText', 'النوع', typeOf(f).label));
-    var meta = f.meta || {};
-    if (meta.resource_type) info.appendChild(infoCell('bookOpen', 'المحتوى', meta.resource_type));
-    if (meta.period) info.appendChild(infoCell('clock', 'الدورة والمرحلة', meta.period));
-    if (meta.season) info.appendChild(infoCell('clock', 'الموسم الدراسي', meta.season));
-    if (meta.has_correction !== undefined && meta.has_correction !== null) info.appendChild(infoCell('check', 'التصحيح', meta.has_correction ? 'مرفق' : 'غير مرفق'));
-    if (f.lv) info.appendChild(infoCell('bookOpen', 'المستوى', f.lv));
-    if (f.sb) info.appendChild(infoCell('library', 'المادة', f.sb));
-    if (f.k) info.appendChild(infoCell('trend', 'المشاهدات', String(f.k)));
-    if (info.children.length > 1 || info.children.length % 2 === 1) {
-      // خلية توازن عند العدد الفردي حتى تبقى الشبكة 2×2 متناسقة
-      if (info.children.length % 2 === 1) info.appendChild(el('div', 'file-info-cell file-info-empty'));
-      box.appendChild(info);
-    }
-
-    if (meta.description) box.appendChild(el('p', 'resource-description', meta.description));
-    if (meta.article_url && /^https?:\/\//i.test(meta.article_url)) {
-      box.appendChild(resourceButton('عرض الشرح', 'secondary-btn', function () { requestExternalOpen(f,'article'); }));
-    }
-    if (state.me && state.me.is_admin && state.online) {
-      box.appendChild(resourceButton('تنظيم بطاقة المورد', 'secondary-btn', function () { startResourceEdit(f.id); }));
-    }
-    var access = fileAccess(f);
-    // حالة VIP من الكاش تكفي للعرض عند تعطل الـ API — قرار الفتح يبقى للخادم
-    var isVipUser = !!(state.me && (state.me.vip || state.me.is_admin));
-
-    // البادج — يختلف بحسب حالة المستخدم
-    var badge;
-    if (access === 'free') {
-      badge = ['detail-badge badge-free', 'مجاني'];
-    } else if (access === 'vip') {
-      badge = isVipUser
-        ? ['detail-badge badge-free', 'محتوى حصري']
-        : ['detail-badge badge-vip', 'حصري لمشتركي VIP'];
-    }
-    box.appendChild(el('div', badge[0], badge[1]));
-
-    if (websiteResource(f)) {
-      var website = resourceButton('قراءة', 'primary-btn', function () { requestExternalOpen(f,'file',website); });
-      box.appendChild(website);
-    } else {
-      var readLabel = {pdf:'قراءة PDF', img:'عرض الصورة', vid:'مشاهدة الفيديو', aud:'استماع'}[typeOf(f).key] || 'فتح الملف';
-      var external = resourceButton(readLabel, 'primary-btn', function () { requestExternalOpen(f,'file',external); });
-      box.appendChild(external);
-      box.appendChild(resourceButton('تحميل', 'secondary-btn', function () { requestDirectDownload(f); }));
-    }
-
-    viewEl.appendChild(box);
+    box.appendChild(actions);
+    var saved=null;try{saved=lsGet('escuila_reading_v1',{})[String(f.id)];}catch(e){}
+    if(saved&&saved.page>1)box.appendChild(el('p','reading-resume-note','ستتابع من الصفحة '+saved.page+' من '+saved.total));
+    if(meta.description)box.appendChild(el('p','resource-description',meta.description));
+    var info=el('dl','file-detail-meta');
+    [['المستوى',f.lv],['المادة',f.sb],['المحتوى',meta.resource_type],['الوحدة',meta.unit],['الدورة والمرحلة',meta.period],['السنة الدراسية',meta.season],['التصحيح',meta.has_correction===true?'مرفق':meta.has_correction===false?'غير مرفق':'']].forEach(function(pair){
+      if(!pair[1])return;var cell=el('div');cell.appendChild(el('dt',null,pair[0]));cell.appendChild(el('dd',null,pair[1]));info.appendChild(cell);
+    });
+    if(info.children.length)box.appendChild(info);
+    var links=el('div','file-detail-links');
+    if(meta.article_url&&/^https?:\/\//i.test(meta.article_url))links.appendChild(actionButton('عرض الشرح','externalLink','secondary-btn',function(){requestExternalOpen(f,'article');}));
+    links.appendChild(actionButton('مشاركة','share','secondary-btn',function(){shareFile(f);}));
+    if(state.me&&state.me.is_admin&&state.online)links.appendChild(resourceButton('تعديل المورد','link-btn',function(){startResourceEdit(f.id);}));
+    box.appendChild(links);viewEl.appendChild(box);
+    var related=state.files.filter(function(item){return item.id!==f.id&&item.sb===f.sb&&item.lv===f.lv;}).slice(0,4);
+    if(related.length&&f.sb)viewEl.appendChild(hScrollRow('قد يفيدك أيضًا',related));
   }
 
   /* ─── VIP screen — mirrors build_vip_subscribe_text/keyboard ─── */
@@ -2411,8 +2468,7 @@
         ? '📄 ملفات هذا القسم (' + directVip.length + ')'
         : '🔒 ملفات هذا القسم (' + directVip.length + ')'));
       var list = el('div', 'fgrid' + (isVip ? '' : ' vip-locked-grid'));
-      directVip.sort(function (a, b) { return b.id - a.id; })
-        .forEach(function (f) { list.appendChild(fileRow(f)); });
+      renderBatched(list,directVip.slice().sort(function (a, b) { return b.id - a.id; }),fileRow,20);
       viewEl.appendChild(list);
     }
 
@@ -2457,67 +2513,103 @@
     }).catch(function (e) { showToast(e.message); });
   }
 
-  function renderAdminResources(top) {
-    viewEl.innerHTML = '';
-    viewEl.appendChild(sectionTitle('تنظيم المحتوى', resourceButton('تحديث', 'link-btn', render)));
-    if (!resourceAdminReady()) return;
-    var intro = el('div', 'resource-entry');
-    intro.appendChild(el('div', 'resource-kicker', 'مسودات محفوظة • نشر بعد المراجعة'));
-    intro.appendChild(el('h2', null, 'وارد الملفات'));
-    intro.appendChild(el('p', null, 'أرسل المرفقات للبوت، أو أضف رابطًا هنا. راجع البطاقة قبل إتاحتها للمستخدمين.'));
-    var add = el('div', 'btn-row');
-    add.appendChild(resourceButton('إرسال ملفات للبوت', 'primary-btn', function () {
-      openTelegramUrl('https://t.me/' + state.botUsername + '?start=resource_upload', true);
-    }));
-    add.appendChild(resourceButton('إضافة رابط', 'secondary-btn', function () { push({ type: 'resourceEditor', id: null }); }));
-    intro.appendChild(add);
-    viewEl.appendChild(intro);
-    var tabs = el('div', 'chipbar resource-tabs');
-    [['draft', 'تنتظر المراجعة'], ['library', 'المكتبة المنشورة'], ['archived', 'الأرشيف']].forEach(function (pair) {
-      var b = resourceButton(pair[1], 'fchip' + (top.mode === pair[0] ? ' on' : ''), function () {
-        top.mode = pair[0]; top.offset = 0; render();
-      });
-      tabs.appendChild(b);
+  var uploadJobs=[],uploadBusy=false;
+  function uploadAttachment(file,job) {
+    return new Promise(function(resolve,reject){
+      var xhr=new XMLHttpRequest();xhr.open('POST',state.api+'/api/admin/resource-upload');xhr.timeout=180000;
+      xhr.setRequestHeader('X-Telegram-InitData',tg.initData);
+      xhr.upload.onprogress=function(event){if(event.lengthComputable){job.progress=Math.round(event.loaded/event.total*100);updateUploadJobs();}};
+      xhr.onload=function(){var data;try{data=JSON.parse(xhr.responseText);}catch(e){data={error:'تعذّر حفظ الملف. حاول مجددًا.'};}if(xhr.status>=200&&xhr.status<300&&data.ok)resolve(data);else reject(data);};
+      xhr.onerror=xhr.ontimeout=function(){reject({error:'انقطع الاتصال. حاول إضافة الملف مجددًا.'});};
+      var body=new FormData();body.append('file',file,file.name);xhr.send(body);
     });
-    viewEl.appendChild(tabs);
-    var search = el('form', 'resource-search');
-    var input = el('input', 'admin-input');
-    input.type = 'search'; input.placeholder = 'ابحث باسم المورد…'; input.value = top.query || '';
-    input.setAttribute('aria-label', 'البحث في قائمة الموارد');
-    var go = el('button', 'secondary-btn', 'بحث'); go.type = 'submit';
-    search.appendChild(input); search.appendChild(go);
-    search.addEventListener('submit', function (e) { e.preventDefault(); top.query = input.value; top.offset = 0; render(); });
-    viewEl.appendChild(search);
-    var list = el('div', 'resource-list');
-    list.appendChild(el('div', 'loading', 'جارٍ تحميل الموارد…'));
-    viewEl.appendChild(list);
-    apiFetch('/api/admin/resources?status=' + top.mode + '&offset=' + (top.offset || 0) + '&q=' + encodeURIComponent(top.query || '')).then(function (r) {
-      if (!list.isConnected) return;
-      list.innerHTML = '';
-      list.appendChild(el('div', 'resource-count', 'الموارد' + (top.query ? ' المطابقة' : '') + ': ' + r.total));
-      if (!r.items.length) list.appendChild(el('p', 'detail-note', !top.query && top.mode === 'draft' ? 'الوارد فارغ. أضف ملفًا أو رابطًا لبدء التنظيم.' : 'لا توجد موارد مطابقة.'));
-      var cats = {};
-      r.categories.forEach(function (c) { cats[c.id] = c; });
-      r.items.forEach(function (item) {
-        var b = resourceButton('', 'resource-row', function () {
-          if (top.mode === 'library') startResourceEdit(item.id);
-          else push({ type: 'resourceEditor', id: item.id });
+  }
+  function updateUploadJobs(){
+    var host=document.querySelector('.resource-upload-jobs');if(!host)return;host.innerHTML='';
+    uploadJobs.slice(-50).forEach(function(job){var row=el('div','resource-upload-job '+job.status);row.appendChild(el('strong',null,job.name));
+      row.appendChild(el('span',null,job.status==='done'?'حُفظ في الوارد':job.status==='error'?job.error:job.status==='sending'?(job.progress===100?'جارٍ حفظ الملف…':'جارٍ الإضافة · '+job.progress+'%'):'في انتظار الإضافة'));
+      if(job.id)row.appendChild(resourceButton(job.status==='done'?'مراجعة':'فتح البطاقة','link-btn',function(){push({type:'resourceEditor',id:job.id});}));host.appendChild(row);
+    });
+  }
+  async function addAttachments(files){
+    if(uploadBusy){showToast('انتظر حتى تنتهي إضافة الملفات الحالية');return;}
+    var batch=Array.prototype.slice.call(files,0,50);if(!batch.length)return;
+    uploadBusy=true;
+    for(var i=0;i<batch.length;i++){
+      var file=batch[i],job={name:file.name,status:'waiting',progress:0};uploadJobs.push(job);updateUploadJobs();
+      if(file.size>20*1024*1024||!file.size){job.status='error';job.error='اختر ملفًا لا يتجاوز 20 ميغابايت';updateUploadJobs();continue;}
+      job.status='sending';updateUploadJobs();
+      try{var r=await uploadAttachment(file,job);job.status='done';job.id=r.item.id;}
+      catch(error){job.status='error';job.error=error.error||'تعذّر إضافة الملف';job.id=error.draft_id;}
+      updateUploadJobs();
+    }
+    uploadBusy=false;uploadJobs=uploadJobs.slice(-50);var top=state.stack[state.stack.length-1];
+    if(top.type==='adminResources'){top.mode='draft';top.offset=0;top.selected={};render();}
+    showToast('انتهت الإضافة. راجع الملفات في الوارد.');
+  }
+
+  function renderAdminResources(top) {
+    viewEl.innerHTML='';top.mode=top.mode||'draft';top.filters=top.filters||{};top.selected=top.selected||{};
+    viewEl.appendChild(sectionTitle('إدارة المحتوى',resourceButton('تحديث','link-btn',render)));
+    if(!resourceAdminReady())return;
+    var intro=el('section','resource-entry resource-entry-modern');
+    intro.appendChild(el('div','resource-kicker','مكتبة مرتبة، وإضافة أسهل'));
+    intro.appendChild(el('h2',null,'أضف مواردك هنا'));
+    intro.appendChild(el('p',null,'اختر ملفًا أو عدة ملفات، ثم راجع تصنيفها قبل النشر.'));
+    var inputFile=el('input');inputFile.type='file';inputFile.multiple=true;inputFile.accept='.pdf,.png,.jpg,.jpeg,.webp';inputFile.hidden=true;inputFile.setAttribute('aria-label','اختيار ملفات جديدة');
+    inputFile.addEventListener('change',function(){addAttachments(inputFile.files);inputFile.value='';});intro.appendChild(inputFile);
+    var add=el('div','btn-row');add.appendChild(actionButton('إضافة ملفات','plus','primary-btn',function(){inputFile.click();}));
+    add.appendChild(actionButton('إضافة رابط','externalLink','secondary-btn',function(){push({type:'resourceEditor',id:null});}));intro.appendChild(add);
+    intro.appendChild(resourceButton('إضافة من محادثة البوت','link-btn',function(){openTelegramUrl('https://t.me/'+state.botUsername+'?start=resource_upload',true);}));
+    var jobs=el('div','resource-upload-jobs');intro.appendChild(jobs);viewEl.appendChild(intro);updateUploadJobs();
+    var summary=el('div','content-summary');viewEl.appendChild(summary);
+    var tabs=el('div','chipbar resource-tabs');
+    [['draft','الوارد'],['library','المكتبة'],['unclassified','تحتاج تصنيفًا'],['duplicates','متشابهة أو مكررة'],['archived','الأرشيف']].forEach(function(pair){tabs.appendChild(resourceButton(pair[1],'fchip'+(top.mode===pair[0]?' on':''),function(){top.mode=pair[0];top.offset=0;top.filters={};top.selected={};render();}));});viewEl.appendChild(tabs);
+    var search=el('form','resource-search');var input=el('input','admin-input');input.type='search';input.placeholder='ابحث بالاسم أو المادة أو الوحدة…';input.value=top.query||'';input.setAttribute('aria-label','البحث في قائمة الموارد');
+    var go=el('button','secondary-btn','بحث');go.type='submit';search.appendChild(input);search.appendChild(go);viewEl.appendChild(search);
+    var filterPanel=el('details','resource-filter-panel');var filterToggle=el('summary',null,'تصفية وترتيب');filterPanel.appendChild(filterToggle);filterPanel.open=!!top.filtersOpen||Object.keys(top.filters).some(function(k){return !!top.filters[k];});filterPanel.addEventListener('toggle',function(){top.filtersOpen=filterPanel.open;});
+    var filterHost=el('div','resource-filter-grid');filterPanel.appendChild(filterHost);filterPanel.appendChild(resourceButton('إعادة الضبط','link-btn',function(){top.filters={};top.sort='newest';top.offset=0;load();}));viewEl.appendChild(filterPanel);
+    var toolbar=el('div','content-bulk-tools');viewEl.appendChild(toolbar);
+    var list=el('div','resource-list');viewEl.appendChild(list);
+    var generation=0,timer;
+    function load(){
+      var request=++generation;list.innerHTML='';for(var i=0;i<3;i++)list.appendChild(el('div','skel skel-card'));
+      var query='?status='+top.mode+'&offset='+(top.offset||0)+'&q='+encodeURIComponent(top.query||'')+'&sort='+(top.sort||'newest');
+      Object.keys(top.filters).forEach(function(k){if(top.filters[k])query+='&'+k+'='+encodeURIComponent(top.filters[k]);});
+      apiFetch('/api/admin/resources'+query).then(function(r){if(!list.isConnected||request!==generation)return;
+        list.innerHTML='';summary.innerHTML='';[['library','منشور'],['draft','في الوارد'],['unclassified','تحتاج تصنيفًا']].forEach(function(pair){var stat=el('div');stat.appendChild(el('strong',null,String((r.summary||{})[pair[0]]||0)));stat.appendChild(el('span',null,pair[1]));summary.appendChild(stat);});
+        renderFilters(r);renderBulk(r);list.appendChild(el('div','resource-count',r.total+' مورد'+(top.mode==='duplicates'?' · التشابه لا يعني تكرار المحتوى بالضرورة':'')));
+        if(!r.items.length){list.appendChild(emptyBox(top.mode==='draft'&&!top.query?'الوارد فارغ.<br>أضف ملفاتك لتبدأ.':'لا توجد موارد مطابقة.<br>جرّب تغيير التصفية.','folder'));return;}
+        var cats={};r.categories.forEach(function(c){cats[c.id]=c;});
+        r.items.forEach(function(item){var row=el('div','content-resource-row');if(top.mode==='draft'){var check=el('input','content-select');check.type='checkbox';check.setAttribute('aria-label','تحديد '+item.name);check.checked=!!top.selected[item.id];check.addEventListener('change',function(){if(check.checked){if(Object.keys(top.selected).length>=50){check.checked=false;showToast('يمكن تنظيم 50 ملفًا في كل دفعة');return;}top.selected[item.id]={id:item.id,version:item.version};}else delete top.selected[item.id];renderBulk(r);});row.appendChild(check);}
+          var b=resourceButton('','resource-row',function(){if(['library','unclassified','duplicates'].indexOf(top.mode)!==-1)startResourceEdit(item.id);else push({type:'resourceEditor',id:item.id});});
+          b.appendChild(svgIcon(item.target_file_id?'fileText':'file',21));var info=el('span','resource-row-content');info.appendChild(el('strong',null,item.name));var m=item.metadata||{};
+          info.appendChild(el('span','resource-row-meta',[m.level,m.subject,m.resource_type,m.unit].filter(Boolean).join(' · ')||'اختر المستوى والمادة ونوع المورد'));
+          info.appendChild(el('span','resource-row-note',(cats[item.category_id]||{}).name||'لم يُحدد القسم'));b.appendChild(info);b.appendChild(el('span','resource-access',item.is_premium?'VIP':'مجاني'));row.appendChild(b);list.appendChild(row);
         });
-        b.appendChild(el('span', 'resource-row-icon', top.mode === 'library' ? '📚' : item.target_file_id ? '✏️' : '📄'));
-        var content = el('span', 'resource-row-content');
-        content.appendChild(el('strong', null, item.name));
-        var meta = item.metadata || {};
-        content.appendChild(el('span', 'resource-row-meta', [meta.level, meta.subject, meta.resource_type, (cats[item.category_id] || {}).name].filter(function (value,index,all) { return value && all.indexOf(value) === index; }).join(' · ') || 'بطاقة تحتاج تنظيمًا'));
-        if (item.target_file_id) content.appendChild(el('span', 'resource-row-note', 'مراجعة تعديلات مورد منشور'));
-        b.appendChild(content);
-        b.appendChild(el('span', 'resource-access', item.is_premium ? 'VIP' : 'مجاني'));
-        list.appendChild(b);
-      });
-      var pages = el('div', 'btn-row');
-      if (top.offset) pages.appendChild(resourceButton('السابق', 'secondary-btn', function () { top.offset = Math.max(0, top.offset - 20); render(); }));
-      if ((top.offset || 0) + r.items.length < r.total) pages.appendChild(resourceButton('التالي', 'secondary-btn', function () { top.offset = (top.offset || 0) + 20; render(); }));
-      list.appendChild(pages);
-    }).catch(function (e) { list.innerHTML = ''; list.appendChild(el('p', 'resource-error', e.message)); });
+        var pages=el('div','btn-row content-pagination');if(top.offset)pages.appendChild(resourceButton('السابق','secondary-btn',function(){top.offset=Math.max(0,top.offset-20);load();}));
+        pages.appendChild(el('span',null,(Math.floor((top.offset||0)/20)+1)+' / '+Math.max(1,Math.ceil(r.total/20))));if((top.offset||0)+r.items.length<r.total)pages.appendChild(resourceButton('التالي','secondary-btn',function(){top.offset=(top.offset||0)+20;load();}));list.appendChild(pages);
+      }).catch(function(error){if(request!==generation||!list.isConnected)return;list.innerHTML='';list.appendChild(el('p','resource-error',error.message));list.appendChild(resourceButton('إعادة المحاولة','secondary-btn',load));});
+    }
+    function renderFilters(r){filterHost.innerHTML='';var active=Object.keys(top.filters).filter(function(k){return !!top.filters[k];}).length;filterToggle.textContent='تصفية وترتيب'+(active?' ('+active+')':'');[['level','المستوى'],['subject','المادة'],['resource_type','نوع المورد'],['unit','الوحدة'],['period','الفترة'],['season','السنة الدراسية']].forEach(function(pair){var values=(r.facets||{})[pair[0]]||[];if(!values.length)return;var label=el('label');label.appendChild(el('span',null,pair[1]));var select=el('select','admin-input');var blank=el('option',null,'الكل');blank.value='';select.appendChild(blank);values.forEach(function(value){var op=el('option',null,value);op.value=value;select.appendChild(op);});select.value=top.filters[pair[0]]||'';select.addEventListener('change',function(){top.filters[pair[0]]=select.value;top.offset=0;load();});label.appendChild(select);filterHost.appendChild(label);});
+      var label=el('label');label.appendChild(el('span',null,'الترتيب'));var sort=el('select','admin-input');[['newest','الأحدث'],['oldest','الأقدم'],['name','الاسم'],['popular','الأكثر قراءة']].forEach(function(pair){var option=el('option',null,pair[1]);option.value=pair[0];sort.appendChild(option);});sort.value=top.sort||'newest';sort.addEventListener('change',function(){top.sort=sort.value;top.offset=0;load();});label.appendChild(sort);filterHost.appendChild(label);
+    }
+    function renderBulk(r){toolbar.innerHTML='';if(top.mode!=='draft')return;var selected=Object.keys(top.selected);toolbar.appendChild(resourceButton(selected.length?'إلغاء التحديد ('+selected.length+')':'تحديد الصفحة','link-btn',function(){if(selected.length)top.selected={};else r.items.forEach(function(item){top.selected[item.id]={id:item.id,version:item.version};});load();}));
+      if(selected.length){toolbar.appendChild(resourceButton('تصنيف المحدد','secondary-btn',function(){openBulkClassification(r,top,load);}));toolbar.appendChild(resourceButton('نشر المحدد','primary-btn',function(){runBatch('publish',{},top,load);}));}}
+    search.addEventListener('submit',function(event){event.preventDefault();clearTimeout(timer);top.query=input.value;top.offset=0;load();});input.addEventListener('input',function(){clearTimeout(timer);timer=setTimeout(function(){if(!input.isConnected)return;top.query=input.value;top.offset=0;load();},350);});load();
+  }
+  function runBatch(action,data,top,done){var items=Object.keys(top.selected).map(function(id){return top.selected[id];});if(!items.length)return;
+    apiFetch('/api/admin/resource-batch',{method:'POST',body:{action:action,data:data,items:items}}).then(function(r){var failed=r.results.filter(function(item){return !item.ok;});var success=r.results.length-failed.length;top.selected={};showToast(success+(action==='publish'?' مورد نُشر':' بطاقة حُفظت')+(failed.length?' · '+failed.length+' تحتاج مراجعة':''));done();if(failed.length){var note=el('p','resource-error');note.textContent=failed.slice(0,3).map(function(item){return item.error;}).join(' · ');viewEl.appendChild(note);}}).catch(function(e){showToast(e.message);});
+  }
+  function resourceCategoryOptions(categories){var map={};categories.forEach(function(c){map[c.id]=c;});return categories.map(function(c){var path=[],cur=c,seen={},hidden=false;while(cur&&!seen[cur.id]){seen[cur.id]=true;path.unshift(cur.name);hidden=hidden||!cur.is_visible;cur=map[cur.parent_id];}return {value:c.id,label:path.join(' ← '),disabled:hidden||!!cur};});}
+  function openBulkClassification(r,top,done){closeSheet();var sheet=el('div','sheet');sheet.setAttribute('role','dialog');sheet.setAttribute('aria-label','تصنيف الملفات المحددة');sheet.appendChild(sectionTitle('تصنيف الملفات ('+Object.keys(top.selected).length+')',resourceButton('إغلاق','link-btn',closeSheet)));sheet.appendChild(el('p','detail-note','تُطبّق الخانات التي تختارها فقط. تبقى البطاقات في الوارد للمراجعة.'));var controls={};
+    [['level','المستوى'],['subject','المادة'],['resource_type','نوع المورد'],['period','الفترة']].forEach(function(pair){var label=el('label','resource-field');label.appendChild(el('span',null,pair[1]));var select=el('select','admin-input');var blank=el('option',null,'الإبقاء كما هو');blank.value='';select.appendChild(blank);r.options[pair[0]].forEach(function(value){var option=el('option',null,value);option.value=value;select.appendChild(option);});label.appendChild(select);sheet.appendChild(label);controls[pair[0]]=select;});
+    [['unit','الوحدة أو الدرس'],['season','السنة الدراسية']].forEach(function(pair){var label=el('label','resource-field');label.appendChild(el('span',null,pair[1]));var input=el('input','admin-input');input.type='text';input.maxLength=pair[0]==='unit'?100:30;input.placeholder='الإبقاء كما هو';label.appendChild(input);sheet.appendChild(label);controls[pair[0]]=input;});
+    var cat=el('label','resource-field');cat.appendChild(el('span',null,'القسم'));var cs=el('select','admin-input');var options=resourceCategoryOptions(r.categories).filter(function(c){return !c.disabled;});
+    var catSearch=el('input','admin-input');catSearch.type='search';catSearch.placeholder='ابحث عن القسم…';catSearch.setAttribute('aria-label','تصفية الأقسام');sheet.appendChild(catSearch);
+    function fillCategories(){var selected=cs.value,words=normalize(catSearch.value).split(/\s+/).filter(Boolean);cs.innerHTML='';var empty=el('option',null,'الإبقاء كما هو');empty.value='';cs.appendChild(empty);options.forEach(function(c){if(String(c.value)!==selected&&!words.every(function(w){return normalize(c.label).indexOf(w)!==-1;}))return;var option=el('option',null,c.label);option.value=c.value;cs.appendChild(option);});cs.value=selected;}
+    catSearch.addEventListener('input',fillCategories);fillCategories();cat.appendChild(cs);sheet.appendChild(cat);
+    sheet.appendChild(resourceButton('حفظ التصنيف','primary-btn',function(){var data={metadata:{}};Object.keys(controls).forEach(function(k){if(controls[k].value)data.metadata[k]=controls[k].value;});if(cs.value)data.category_id=Number(cs.value);if(!Object.keys(data.metadata).length&&!cs.value){showToast('اختر تصنيفًا لتطبيقه');return;}closeSheet();runBatch('save',data,top,done);}));document.body.appendChild(sheet);sheetBackdrop.hidden=false;sheetBackdrop.addEventListener('click',closeSheet);
   }
 
   function renderResourceEditor(top) {
@@ -2546,6 +2638,7 @@
           values.forEach(function (option) {
             var o = el('option', null, typeof option === 'string' ? option : option.label);
             o.value = typeof option === 'string' ? option : option.value;
+            o.disabled = typeof option === 'object' && !!option.disabled;
             input.appendChild(o);
           });
         } else if (type !== 'textarea') input.type = type || 'text';
@@ -2557,13 +2650,8 @@
       }
       field('name', 'اسم المورد', null, item.name).maxLength = 200;
       controls.name.required = true;
-      var cats = {}, options = [];
+      var cats = {}, options = resourceCategoryOptions(r.categories);
       r.categories.forEach(function (c) { cats[c.id] = c; });
-      r.categories.forEach(function (c) {
-        var path = [], cur = c, seen = {};
-        while (cur && !seen[cur.id]) { seen[cur.id] = true; path.unshift(cur.name); cur = cats[cur.parent_id]; }
-        options.push({ value: c.id, label: path.join(' ← ') });
-      });
       field('category_id', 'القسم', options, item.category_id);
       var catSearch = el('input', 'admin-input');
       catSearch.type = 'search'; catSearch.placeholder = 'ابحث عن القسم: السادس الرياضيات…';
@@ -2581,13 +2669,14 @@
         var blank = el('option', null, 'اختر…'); blank.value = ''; controls.category_id.appendChild(blank);
         options.forEach(function (option) {
           if (String(option.value) !== selected && !words.every(function (w) { return normalize(option.label).indexOf(w) !== -1; })) return;
-          var o = el('option', null, option.label); o.value = option.value; controls.category_id.appendChild(o);
+          var o = el('option', null, option.label); o.value = option.value; o.disabled=!!option.disabled; controls.category_id.appendChild(o);
         });
         controls.category_id.value = selected;
       });
       var labels = {level:'المستوى', subject:'المادة', resource_type:'نوع المورد', period:'الفترة'};
       Object.keys(labels).forEach(function (key) { field(key, labels[key], r.options[key], item.metadata[key]); });
-      field('season', 'الموسم الدراسي', null, item.metadata.season).placeholder = '2026-2027';
+      field('season', 'السنة الدراسية', null, item.metadata.season).placeholder = '2026-2027';
+      field('unit', 'الوحدة أو الدرس', null, item.metadata.unit).maxLength = 100;
       field('has_correction', 'هل أرفقت التصحيح؟', [{value:'true',label:'نعم، مرفق'}, {value:'false',label:'لا، غير مرفق'}], item.metadata.has_correction);
       field('is_premium', 'الوصول للمورد', [{value:'false',label:'مجاني'}, {value:'true',label:'VIP'}], item.is_premium);
       var accessNote = el('p', 'resource-attachment');
@@ -2636,26 +2725,39 @@
       }
       if (readOnly) form.appendChild(el('p', 'detail-note', item.status === 'published' ? 'هذه المسودة منشورة. افتح المورد من المكتبة لإنشاء مراجعة جديدة.' : 'هذه المسودة محفوظة في الأرشيف.'));
       form.addEventListener('submit', function (e) { e.preventDefault(); submit(false); });
+      ['resource_type','subject','level'].forEach(function(key){form.insertBefore(controls[key].parentNode,controls.name.parentNode.nextSibling);});
+      var extras=el('details','resource-extras');extras.appendChild(el('summary',null,'تفاصيل إضافية · الوحدة، الفترة، الشرح'));
+      var extraGrid=el('div','resource-extra-grid');['unit','period','season','has_correction','article_url','description'].forEach(function(key){extraGrid.appendChild(controls[key].parentNode);});extras.appendChild(extraGrid);form.insertBefore(extras,error);
+      var preview=resourceButton('معاينة المورد','secondary-btn resource-preview',function(){
+        var saved=readOnly?Promise.resolve():submit(false);if(!saved)return;
+        saved.then(function(result){if(result===false)return null;return apiFetch('/api/admin/resource-preview/'+item.id);}).then(function(resource){if(!resource)return;if(resource.mode==='web'){openExternalUrl(resource.url);return;}push({type:'reader',preview:true,file:{id:'draft-'+item.id,n:item.name},resource:resource});}).catch(function(e){showToast(e.message);});
+      });form.insertBefore(preview,actions);
+      Object.keys(controls).forEach(function(key){if(top.localDraft&&top.localDraft[key]!==undefined)controls[key].value=top.localDraft[key];controls[key].addEventListener('input',function(){top.localDraft={};Object.keys(controls).forEach(function(k){top.localDraft[k]=controls[k].value;});});});
+      function suggestCategory(){if(controls.category_id.value)return;var words=[controls.level.value,controls.subject.value,controls.resource_type.value].filter(Boolean);if(words.length<2)return;var ranked=options.map(function(option){return {id:option.value,score:words.reduce(function(score,w){return score+(normalize(option.label).indexOf(normalize(w))!==-1?1:0);},0)};}).filter(function(candidate){return candidate.score>=2;}).sort(function(a,b){return b.score-a.score;});if(ranked.length&&(!ranked[1]||ranked[0].score>ranked[1].score)){controls.category_id.value=String(ranked[0].id);categoryAccessNote();}}
+      ['level','subject','resource_type'].forEach(function(key){controls[key].addEventListener('change',suggestCategory);});suggestCategory();
       host.appendChild(form);
       function submit(approve) {
         if (readOnly || save.disabled || !form.reportValidity()) return;
+        if(approve&&(!controls.level.value||!controls.subject.value||!controls.resource_type.value||!controls.category_id.value)){error.hidden=false;error.textContent='اختر المستوى والمادة ونوع المورد والقسم قبل النشر';return;}
         error.hidden = true; save.disabled = true; publish.disabled = true;
         var data = {name:controls.name.value, category_id:controls.category_id.value ? Number(controls.category_id.value) : null, is_premium:controls.is_premium.value === 'true', metadata:{}};
         if (controls.link) data.link = controls.link.value;
-        ['level','subject','resource_type','period','season','article_url','description'].forEach(function (key) { data.metadata[key] = controls[key].value; });
+        ['level','subject','resource_type','period','unit','season','article_url','description'].forEach(function (key) { data.metadata[key] = controls[key].value; });
         data.metadata.has_correction = controls.has_correction.value === '' ? null : controls.has_correction.value === 'true';
         var begin = item.id ? Promise.resolve({item:item}) : apiFetch('/api/admin/resource-create', {method:'POST', body:{name:data.name,link:data.link}});
-        begin.then(function (created) {
+        return begin.then(function (created) {
           item = created.item; top.id = item.id;
           return apiFetch('/api/admin/resource/' + item.id, {method:'POST',body:{action:'save',version:item.version,data:data}});
         }).then(function (saved) {
           item = saved.item;
+          top.localDraft=null;
           if (!approve) { showToast('حُفظت المسودة'); save.disabled = false; publish.disabled = false; return; }
           return apiFetch('/api/admin/resource/' + item.id, {method:'POST',body:{action:'publish',version:item.version}}).then(function (published) {
             showToast('حُفظ المورد في المكتبة');
             return apiFetch('/api/resource-card/' + published.file_id).then(function (updated) {
               state.files = state.files.filter(function (f) { return f.id !== updated.file.id; });
               state.files.push(updated.file); state.fileById[updated.file.id] = updated.file;
+              rebuildIndex();
               if (state.stack[state.stack.length - 1] === top) { state.stack.pop(); push({type:'file',file:updated.file}); }
             }).catch(function () {
               host.innerHTML = '';
@@ -2665,6 +2767,7 @@
           });
         }).catch(function (e) {
           save.disabled = false; publish.disabled = false; error.textContent = e.message; error.hidden = false;
+          return false;
         });
       }
     }).catch(function (e) { host.innerHTML = ''; host.appendChild(el('p', 'resource-error', e.message)); });
@@ -3006,7 +3109,7 @@
     if (event.key === 'Escape' && document.querySelector('.sheet')) closeSheet();
   });
   searchEl.addEventListener('keydown', function (event) {
-    if (event.key === 'Enter') { state.query = searchEl.value.trim(); rememberSearch(); searchEl.blur(); }
+    if (event.key === 'Enter') { clearTimeout(state.searchTimer);state.query = searchEl.value.trim(); rememberSearch(); searchEl.blur();state.stack=[{type:'search'}];state.tab='search';updateTabbar();render(); }
   });
 
   searchEl.addEventListener('focus', function () {
@@ -3140,7 +3243,7 @@
         state.cats = res[0].categories || [];
         state.files = res[1].files || [];
         state.fileById = {};
-        state.files.forEach(function (f) { state.fileById[f.id] = f; });
+        rebuildIndex();
         state.stack = [{ type: 'home' }];
         state.tab = 'home';
         state.catFilter = 'all';
