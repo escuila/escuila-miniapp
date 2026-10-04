@@ -4,22 +4,23 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
-<link rel="stylesheet" href="tokens.css?v=20261004-product3">
-<link rel="stylesheet" href="style.css?v=20261004-product3">
-<link rel="stylesheet" href="workspace.css?v=20261004-product3">
+<link rel="stylesheet" href="tokens.css?v=20261004-product4">
+<link rel="stylesheet" href="style.css?v=20261004-product4">
+<link rel="stylesheet" href="workspace.css?v=20261004-product4">
 <meta name="theme-color" content="#6d43d9">
 <title>Escuila — مساحتك للتعلم</title>
 <script defer src="https://telegram.org/js/telegram-web-app.js"></script>
-<link rel="stylesheet" href="product.css?v=20261004-product3">
-<script defer src="admin-workspace.js?v=20261004-product3"></script>
-<script defer src="app.js?v=20261004-product3"></script>
+<link rel="stylesheet" href="product.css?v=20261004-product4">
+<link rel="stylesheet" href="experience.css?v=20261004-product4">
+<script defer src="admin-workspace.js?v=20261004-product4"></script>
+<script defer src="app.js?v=20261004-product4"></script>
 </head>
 <body>
 <header id="topbar">
-  <div id="brand"><img id="logo" src="assets/logo.png" alt="Escuila"><span class="brand-caption">مساحتك للتعلّم</span><button id="headerVip" type="button" aria-label="فتح مساحة VIP"><span data-icon="gem" data-icon-size="15"></span><span>VIP</span></button></div>
+  <div id="brand"><img id="logo" src="assets/logo.png" alt="Escuila"><span class="brand-caption">مساحتك للتعلّم</span><button id="headerVip" data-tab="vip" type="button" aria-label="فتح مساحة VIP"><span data-icon="gem" data-icon-size="15"></span><span>VIP</span></button><button id="headerAdmin" data-tab="admin" type="button" hidden>الإدارة</button></div>
   <div id="searchwrap">
-    <span class="search-ic" data-icon="search" data-icon-size="16"></span>
-    <input id="search" type="search" aria-label="البحث في المكتبة" placeholder="ما الذي تريد تعلّمه اليوم؟" autocomplete="off" enterkeyhint="search">
+    <button id="openSearch" data-tab="search" type="button" aria-label="فتح البحث"><span data-icon="search" data-icon-size="18"></span></button>
+    <input id="search" type="search" maxlength="160" aria-label="البحث في المكتبة" placeholder="ابحث عن درس، فرض، أو مقال…" autocomplete="off" enterkeyhint="search">
     <button id="clearSearch" type="button" aria-label="مسح البحث" hidden><span data-icon="x" data-icon-size="12"></span></button>
   </div>
 </header>
@@ -37,10 +38,8 @@
   <div id="bar-inner">
     <button class="tab active" data-tab="home" type="button"><span class="ticon" data-icon="home" data-icon-size="20"></span><span class="tlabel">الرئيسية</span></button>
     <button class="tab" data-tab="library" type="button"><span class="ticon" data-icon="library" data-icon-size="20"></span><span class="tlabel">المكتبة</span></button>
-    <button class="tab" data-tab="search" type="button"><span class="ticon" data-icon="search" data-icon-size="20"></span><span class="tlabel">البحث</span></button>
     <button class="tab" data-tab="favs" type="button"><span class="ticon" data-icon="star" data-icon-size="20"></span><span class="tlabel">المفضلة</span></button>
-    <button class="tab" data-tab="vip" type="button"><span class="ticon" data-icon="gem" data-icon-size="20"></span><span class="tlabel">مساحة VIP</span></button>
-    <button class="tab" data-tab="admin" type="button" hidden><span class="ticon" data-icon="shield" data-icon-size="20"></span><span class="tlabel">الإدارة</span></button>
+    <button class="tab" data-tab="account" type="button"><span class="ticon" data-icon="users" data-icon-size="20"></span><span class="tlabel">حسابي</span></button>
   </div>
 </nav>
 
