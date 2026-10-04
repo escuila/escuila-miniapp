@@ -4,6 +4,15 @@ button, input, select { font: inherit; }
 button { touch-action: manipulation; }
 button:focus-visible, select:focus-visible { outline: 3px solid var(--link); outline-offset: 3px; }
 body { background: var(--canvas); }
+
+/* Shared subscription gate remains available after removing the reader. */
+.access-control { border: 1px solid var(--border); border-radius: 9px; min-height: 44px; padding: 7px 12px; background: var(--surface); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; white-space: nowrap; }
+.membership-panel { margin: 16px 0; padding: 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; }
+.membership-panel h2 { font-size: 20px; margin: 0 0 10px; }
+.membership-panel p { font-size: 14px; line-height: 1.8; color: var(--hint); }
+.membership-destination { display: flex; gap: 10px; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.membership-panel .primary-btn { margin-top: 16px; width: 100%; }
+.membership-error { color: var(--vip-fg); font-size: 13px; line-height: 1.8; margin-top: 12px; }
 .account-status { display: flex; align-items: center; gap: 12px; padding: 13px 14px; margin-bottom: 16px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); color: var(--text); }
 .account-status-info { flex: 1; min-width: 0; }
 .account-status strong { font-size: 13px; }

@@ -3,7 +3,7 @@
  * auto-synced from the bot's database (utils/sync_mini_data.py).
  *
  * Structure: 4 tabs (home / library / search / favorites) + stack navigation,
- * embedded viewer for free files, bot-mirrored VIP screen with live prices,
+ * external resource opening, bot-mirrored VIP screen with live prices,
  * level/subject/type/access filters, cover-based file cards, local favorites
  * synced through Telegram CloudStorage, deep-link support (start_param).
  * VIP/paywall checks stay enforced in the bot — the app never holds secrets. */
@@ -39,7 +39,6 @@
     sessionRetryTimer: null
   };
 
-  var readerCleanup = null;
   var viewEl = document.getElementById('view');
   var searchEl = document.getElementById('search');
   var clearEl = document.getElementById('clearSearch');
@@ -187,7 +186,7 @@
   }
 
   function expiryLabel(me) {
-    if (!state.online) return 'آخر حالة محفوظة · تحقّق من اشتراكك في البوت';
+    if (!state.online) return 'تعذّر تحديث اشتراكك الآن. حاول مجددًا.';
     if (me.vip_days_left === 0) return 'اشتراكك ساري حتى نهاية اليوم';
     return 'متبقٍ ' + me.vip_days_left + ' يوم · حتى ' + formatExpiry(me.vip_expires);
   }
@@ -398,7 +397,7 @@
 
   function typeOf(f) {
     var n = (f.n || '').toLowerCase();
-    if (/\.pdf|فرض|امتحان|مراجعة/.test(n)) return TYPES[0];
+    if (/\.pdf|\bpdf\b|فرض|امتحان|مراجعة/.test(n)) return TYPES[0];
     if (/\.doc|\.docx|تلخيص|مذكرة|درس/.test(n)) return TYPES[1];
     if (/\.jpg|\.jpeg|\.png|صورة/.test(n)) return TYPES[2];
     if (/\.mp4|\.avi|فيديو/.test(n)) return TYPES[3];
@@ -406,17 +405,22 @@
     return TYPES[5];
   }
 
-  // three access states: free (in-app viewer), vip (exclusive, bot gate),
-  // bot (free but no embeddable link — internal media id, t.me post, …)
+  // Access flags describe free and VIP resources; the API verifies permissions.
   function fileAccess(f) {
-    if (f.r === 'free' || f.u) return 'free';
-    return f.r === 'vip' ? 'vip' : 'bot';
+    // The learner chooses free or exclusive content, regardless of storage.
+    return f.r === 'vip' ? 'vip' : 'free';
+  }
+
+  function websiteResource(f) {
+    if (f.w) return true;
+    if (!/^https?:\/\//i.test(f.u || '')) return false;
+    try { return !/\.(pdf|jpe?g|png|gif|webp|bmp)$/i.test(new URL(f.u).pathname); }
+    catch (e) { return true; }
   }
 
   var ACCESS_LABEL = {
     free: 'مجاني',
-    vip: 'VIP',
-    bot: 'مجاني'
+    vip: 'حصري'
   };
 
   var LEVEL_ORDER = ['الأول', 'الثاني', 'الثالث', 'الرابع', 'الخامس', 'السادس'];
@@ -528,7 +532,7 @@
 
   function openBotChat(startParam) {
     if (!state.botUsername) {
-      showToast('لم يتم ضبط معرّف البوت');
+      showToast('هذه الخدمة غير متاحة الآن. حاول لاحقًا.');
       return;
     }
     openTelegramUrl('https://t.me/' + state.botUsername + (startParam ? '?start=' + startParam : ''), true);
@@ -553,10 +557,10 @@
         try {
           tg.openInvoice(r.link, function (status) {
             if (status === 'paid') {
-              showToast('🎉 تم الدفع! التفعيل يتم فور اختيار المدة — تحقق من البوت');
+              showToast('تم الدفع. اختر مدة اشتراكك لإكمال الطلب.');
               setTimeout(function () { openBotChat('vip'); }, 1200);
             } else if (status === 'failed') {
-              showToast('تعذّر إتمام الدفع — حاول مجدداً أو عبر البوت');
+              showToast('تعذّر إتمام الدفع. حاول مجددًا.');
             }
           });
         } catch (e) {
@@ -572,17 +576,12 @@
 
   /* ─── direct download (تحميل مباشر من التطبيق — بدون البوت) ─── */
 
-  // فتح رابط في المتصفح: الخادم يرسل Content-Disposition: attachment فيبدأ
-  // التنزيل فوراً. tg.downloadFile (Bot API 8+) يُجرَّب فقط عند غياب openLink
-  // لأنه يشترط أن يكون الملف من نفس نطاق التطبيق — وهو ليس حالة النفق.
+  // Keep the original URL and site layout when opening outside the Mini App.
   function openExternalUrl(url) {
     try {
-      if (tg && tg.openLink) { tg.openLink(url); return; }
+      if (tg && tg.openLink) { tg.openLink(url, {try_instant_view:false}); return; }
     } catch (e) { /* fall through */ }
-    try {
-      if (tg && typeof tg.downloadFile === 'function') { tg.downloadFile(url); return; }
-    } catch (e2) { /* fall through */ }
-    window.open(url, '_blank');
+    window.open(url, '_blank', 'noopener,noreferrer');
   }
 
   // المسار الموحد للتحميل المباشر: الخادم وحده يقرر الهدف — رابط عام،
@@ -590,7 +589,7 @@
   function requestDirectDownload(f, btn) {
     if (!state.api || !tg || !tg.initData) {
       // لا خادم مهيأ (وضع ثابت بلا نفق) — التسليم عبر البوت مباشرة بلا محاولة فاشلة
-      showToast('التحميل المباشر يحتاج اتصال الخادم — جارٍ فتح البوت…');
+      showToast('جارٍ تجهيز الملف في تيليجرام…');
       setTimeout(function () { openInBot(f); }, 600);
       return;
     }
@@ -606,29 +605,45 @@
       } else if (r.mode === 'download' && r.url) {
         openExternalUrl(state.api + r.url);
       } else {
-        showToast(r.reason || 'يُسلَّم هذا الملف عبر البوت');
+        showToast('يمكنك استلام هذا الملف في تيليجرام.');
         setTimeout(function () { openInBot(f); }, 700);
       }
     }).catch(function (e) {
       if (sp) sp.textContent = label;
       if (btn) btn.disabled = false;
-      readerError(e,f,null,function () { requestDirectDownload(f,btn); });
+      resourceAccessError(e,f,function () { requestDirectDownload(f,btn); });
+    });
+  }
+
+  function requestExternalOpen(f, part, btn) {
+    if (!state.api || !tg || !tg.initData) {
+      showToast(!tg || !tg.initData ? 'للمتابعة، افتح Escuila من زر التطبيق في تيليجرام.' : 'تعذّر فتح المحتوى الآن. حاول لاحقًا.');
+      return;
+    }
+    if (btn) btn.disabled = true;
+    apiFetch('/api/file-view/' + f.id + '?external=1&part=' + (part || 'file')).then(function (resource) {
+      if (btn) btn.disabled = false;
+      var url = resource.mode === 'web' ? resource.url : state.api + resource.url;
+      openExternalUrl(url);
+    }).catch(function (error) {
+      if (btn) btn.disabled = false;
+      resourceAccessError(error,f,function () { requestExternalOpen(f,part,btn); });
     });
   }
 
   function shareFile(f) {
     haptic('light');
     if (!state.botUsername) {
-      showToast('لم يتم ضبط معرّف البوت');
+      showToast('المشاركة غير متاحة الآن. حاول لاحقًا.');
       return;
     }
-    var text = 'حمل «' + f.n + '» من بوت Escuila 📚';
+    var text = 'اطّلع على «' + f.n + '» في Escuila 📚';
     if (navigator.share) {
       navigator.share({ title: f.n, text: text, url: botFileUrl(f) })
         .catch(function () { /* user cancelled the share sheet */ });
     } else {
       copyText(botFileUrl(f));
-      showToast('تم نسخ الرابط — شاركه مع أصدقائك');
+      showToast('تم نسخ رابط المشاركة');
     }
   }
 
@@ -646,40 +661,6 @@
       tg.MainButton.setText(text);
       tg.MainButton.show();
     } catch (e) { /* older clients */ }
-  }
-
-  /* ─── embed helpers (viewer) ─── */
-
-  function isImageUrl(url) {
-    return /\.(jpe?g|png|webp|gif|bmp)(\?|#|$)/i.test(url);
-  }
-
-  // Google Drive/docs links need their /view… form turned into /preview to
-  // render inside an iframe; returns null when no transform applies.
-  function drivePreview(url) {
-    var m = url.match(/drive\.google\.com\/file\/d\/([\w-]+)/);
-    if (m) return 'https://drive.google.com/file/d/' + m[1] + '/preview';
-    m = url.match(/drive\.google\.com\/.*[?&]id=([\w-]+)/);
-    if (m) return 'https://drive.google.com/file/d/' + m[1] + '/preview';
-    m = url.match(/docs\.google\.com\/(document|presentation|spreadsheets)\/d\/([\w-]+)/);
-    if (m) return 'https://docs.google.com/' + m[1] + '/d/' + m[2] + '/preview';
-    return null;
-  }
-
-  // Best embed URL for a public file link, or null if it should not be
-  // embedded at all. Telegram pages block framing; direct PDFs go through
-  // the Google Docs viewer because mobile browsers rarely render PDFs in a
-  // plain iframe.
-  function embedUrl(url) {
-    if (!url || !/^https:\/\//i.test(url)) return null;
-    if (isImageUrl(url)) return null;
-    if (/^https:\/\/t\.me\//i.test(url)) return null;
-    var drv = drivePreview(url);
-    if (drv) return drv;
-    if (/\.pdf(\?|#|$)/i.test(url)) {
-      return 'https://docs.google.com/viewer?url=' + encodeURIComponent(url) + '&embedded=true';
-    }
-    return url;
   }
 
   /* ─── building blocks (always DOM nodes — never stringified) ─── */
@@ -844,11 +825,12 @@
   // رسائل فشل الشبكة يصيغها المتصفح بالإنجليزية («Failed to fetch» وغيرها) —
   // نستبدلها برسالة عربية مفهومة قبل عرضها للمستخدم
   function apiErrMsg(e, fallback) {
-    var msg = (e && e.message) || '';
-    if (!msg || /failed to fetch|networkerror|load failed|timed? ?out|unexpected end/i.test(msg)) {
-      return fallback;
-    }
-    return msg;
+    // Public screens use actionable copy; raw service errors stay in admin.
+    if (e && e.status === 401) return 'للمتابعة، افتح Escuila من زر التطبيق في تيليجرام.';
+    if (e && e.status === 404) return 'هذا المحتوى غير متاح حاليًا.';
+    if (e && e.status === 429) return 'انتظر قليلًا ثم حاول مجددًا.';
+    if (e && e.status === 403 && /موقوف|محظور/.test(e.message || '')) return 'حسابك موقوف. تواصل مع الدعم.';
+    return fallback || 'تعذّر إتمام الطلب. حاول مجددًا.';
   }
 
   function apiFetch(path, opts) {
@@ -868,7 +850,7 @@
     if (controller) opts.signal = controller.signal;
     return fetch(state.api + path, opts).then(function (r) {
       return r.json().catch(function () {
-        throw new Error('رابط اتصال البوت لا يستجيب بشكل صحيح');
+        throw new Error('تعذّر الاتصال. حاول مجددًا.');
       }).then(function (j) {
         if (!r.ok || j.ok === false) {
           var err = new Error((j && j.error) || 'تعذر تنفيذ العملية');
@@ -1023,20 +1005,20 @@
   function accountStatusPanel() {
     if (state.sessionStatus === 'ready' && !(state.me && state.me.is_admin)) return null;
     var panel = el('section', 'account-status');
-    panel.setAttribute('aria-label', 'اتصال الحساب');
+    panel.setAttribute('aria-label', 'حسابي');
     panel.setAttribute('aria-live', 'polite');
     var info = el('div', 'account-status-info');
-    var title = 'جارٍ ربط حسابك…', note = 'ستظهر عضويتك بعد الاتصال بالبوت.';
+    var title = 'جارٍ تحميل حسابك…', note = 'لحظات ونجهّز مكتبتك.';
     if (state.sessionStatus === 'ready') { title = 'حساب المدير متصل'; note = 'إدارة الملفات والموارد جاهزة.'; }
-    else if (state.sessionStatus === 'telegram') { title = 'تصفح المكتبة متاح'; note = 'افتح التطبيق من زر البوت لربط حسابك.'; }
-    else if (state.sessionStatus === 'unconfigured') { title = 'ربط الحساب غير جاهز'; note = 'رابط اتصال البوت يحتاج تحديثًا.'; }
-    else if (state.sessionStatus === 'expired') { title = 'أعد فتح التطبيق من البوت'; note = 'انتهت جلسة الحساب أو تعذّر التحقق منها.'; }
-    else if (state.sessionStatus === 'offline') { title = 'تعذّر الاتصال بحسابك'; note = 'المكتبة متاحة. العضوية والإدارة تحتاجان اتصال البوت.'; }
+    else if (state.sessionStatus === 'telegram') { title = 'مرحبًا بك في Escuila'; note = 'تصفّح المكتبة، وافتح Escuila من تيليجرام للقراءة والتحميل.'; }
+    else if (state.sessionStatus === 'unconfigured') { title = 'القراءة غير متاحة مؤقتًا'; note = 'يمكنك تصفّح المكتبة والمحاولة لاحقًا.'; }
+    else if (state.sessionStatus === 'expired') { title = 'أعد فتح Escuila للمتابعة'; note = 'استخدم زر التطبيق في محادثة تيليجرام.'; }
+    else if (state.sessionStatus === 'offline') { title = 'تعذّر تحميل حسابك'; note = 'يمكنك تصفّح المكتبة وإعادة المحاولة.'; }
     info.appendChild(el('strong', null, title));
     info.appendChild(el('p', null, note));
     panel.appendChild(info);
     if (state.sessionStatus !== 'checking') {
-      var label = state.sessionStatus === 'ready' ? 'الإدارة' : state.sessionStatus === 'telegram' || state.sessionStatus === 'expired' ? 'فتح البوت' : 'إعادة الاتصال';
+      var label = state.sessionStatus === 'ready' ? 'الإدارة' : state.sessionStatus === 'telegram' || state.sessionStatus === 'expired' ? 'الانتقال إلى تيليجرام' : 'إعادة المحاولة';
       panel.appendChild(resourceButton(label, 'account-status-action', function () {
         if (state.sessionStatus === 'ready') switchTab('admin', {noFocus: true});
         else if (state.sessionStatus === 'telegram' || state.sessionStatus === 'expired') openBotChat();
@@ -1099,19 +1081,15 @@
   }
 
   function render() {
-    if (readerCleanup) { readerCleanup(); readerCleanup = null; }
     var top = state.stack[state.stack.length - 1];
     var depth = state.stack.length;
 
     var pageNav = document.getElementById('page-nav');
-    pageNav.hidden = depth < 2 || top.type === 'viewer';
+    pageNav.hidden = depth < 2;
     var labels = { cat: 'المكتبة', file: 'تفاصيل الملف', results: 'تصفح الملفات', vip: 'مساحة VIP', vipFiles: 'المكتبة الحصرية', locked: 'محتوى حصري', adminUsers: 'المستخدمون', adminUser: 'تفاصيل المستخدم', adminLogs: 'سجل الإدارة', adminResources: 'تنظيم المحتوى', resourceEditor: 'بطاقة المورد' };
     document.getElementById('page-title').textContent = labels[top.type] || '';
 
     setMainButton(null);
-
-    // وضع القراءة: العارض يملأ الشاشة بلا أشرطة تنقل (إحساس تطبيق PDF)
-    document.body.classList.toggle('immersive', top.type === 'viewer');
 
     // حالة الكيبورد ذاتية الإصلاح: أي تنقل خارج البحث يمسحها
     if (top.type !== 'search') document.body.classList.remove('kb-open');
@@ -1142,8 +1120,8 @@
     else if (top.type === 'resourceEditor') renderResourceEditor(top);
     else if (top.type === 'cat') renderCat(top.id);
     else if (top.type === 'file') renderFileDetails(top.file);
-    else if (top.type === 'viewer') renderViewer(top.file, top.part);
     else if (top.type === 'membership') renderMembershipPanel(viewEl, top.error, top.retry);
+    else if (top.type === 'resourceError') renderResourceError(top);
     else if (top.type === 'vip') renderVip();
     else if (top.type === 'vipFiles') renderVipFiles();
     else if (top.type === 'results') renderResults(top.source, top.q, top.mode);
@@ -1258,7 +1236,7 @@
       select.addEventListener('change', function () {
         lsSet(LEVEL_KEY, select.value);
         render();
-        showToast(select.value ? 'تم حفظ مستواك على هذا الجهاز' : 'نعرض لك جميع المستويات');
+        showToast(select.value ? 'تم حفظ مستواك الدراسي' : 'نعرض لك جميع المستويات');
       });
       planner.appendChild(select);
       viewEl.appendChild(planner);
@@ -1290,7 +1268,7 @@
     }
 
     if (me && me.vip) {
-      viewEl.appendChild(actionButton('اشتراكك مفعّل · ' + expiryLabel(me), 'gem', 'member-home-link', function () { switchTab('vip', { noFocus: true }); }));
+      viewEl.appendChild(actionButton(state.online ? 'اشتراكك نشط · ' + expiryLabel(me) : 'تحديث اشتراكي', 'gem', 'member-home-link', function () { switchTab('vip', { noFocus: true }); }));
       var exclusive = learningFiles(vipFilesAll()).slice().sort(function (a, b) { return b.id - a.id; }).slice(0, 6);
       if (exclusive.length) viewEl.appendChild(hScrollRow('جديد مكتبتك الحصرية', exclusive, function () { push({ type: 'vipFiles' }); }));
     }
@@ -1348,8 +1326,8 @@
       var vlInfo = el('div', 'vip-library-info');
       vlInfo.appendChild(el('div', 'vip-library-title', '💎 المحتوى الحصري'));
       vlInfo.appendChild(el('div', 'vip-library-sub', isVipSub
-        ? vipCount + ' ملفاً — قسمك الخاص قابل للتصفح'
-        : vipCount + ' ملفاً حصرياً + أقسام كاملة — للمشتركين'));
+        ? vipCount + ' ملفًا في مكتبتك الحصرية'
+        : vipCount + ' ملفًا حصريًا لمشتركي VIP'));
       vipRow.appendChild(vlInfo);
       vipRow.appendChild(chevEl());
       vipRow.addEventListener('click', function () {
@@ -1387,7 +1365,7 @@
 
     var roots = childrenOf(null);
     if (!roots.length) {
-      viewEl.appendChild(emptyBox('لا توجد أقسام لعرضها.<br>اضغط «تحديث» بالأعلى أو تأكد من رفع ملفات البيانات.', 'folder'));
+      viewEl.appendChild(emptyBox('لا توجد أقسام حاليًا.<br>اضغط «تحديث» للمحاولة مجددًا.', 'folder'));
       return;
     }
     roots.forEach(function (c) { viewEl.appendChild(catCard(c)); });
@@ -1398,7 +1376,7 @@
     var bIcon = el('div', 'icon');
     bIcon.appendChild(svgIcon('folder', 20));
     browseAll.appendChild(bIcon);
-    browseAll.appendChild(el('div', 'label', 'كل الملفات مع الفلاتر'));
+    browseAll.appendChild(el('div', 'label', 'كل الملفات'));
     browseAll.addEventListener('click', function () {
       haptic('light');
       state.filters = { lv: '', sb: '', tp: '', ac: '' };
@@ -1467,11 +1445,11 @@
       var filterBtn = el('button', 'link-btn');
       filterBtn.type = 'button';
       filterBtn.appendChild(svgIcon('sliders', 14));
-      filterBtn.appendChild(el('span', null, 'فلترة'));
+      filterBtn.appendChild(el('span', null, 'تصفية'));
       filterBtn.addEventListener('click', function () { openFilterSheet(files, 'cat'); });
       viewEl.appendChild(sectionTitle('الملفات (' + files.length + ')', filterBtn));
 
-      var freeN = files.filter(function (f) { return !!f.u; }).length;
+      var freeN = files.filter(function (f) { return fileAccess(f) === 'free'; }).length;
       if (freeN > 0 && freeN < files.length) {
         viewEl.appendChild(buildCatAccessBar(files));
       }
@@ -1481,7 +1459,7 @@
       viewEl.appendChild(list);
     }
     if (!subs.length && !files.length) {
-      viewEl.appendChild(emptyBox('هذا القسم فارغ حالياً.<br>سيظهر المحتوى هنا فور إضافته من لوحة الإدارة.'));
+      viewEl.appendChild(emptyBox('لا يوجد محتوى في هذا القسم حاليًا.'));
     }
     if (cat && cat.locked && !(state.me && (state.me.vip || state.me.is_admin))) {
       viewEl.appendChild(el('div', 'detail-note',
@@ -1491,11 +1469,11 @@
 
   function buildCatAccessBar(files) {
     var bar = el('div', 'chipbar');
-    var freeN = files.filter(function (f) { return !!f.u; }).length;
+    var freeN = files.filter(function (f) { return fileAccess(f) === 'free'; }).length;
     var opts = [
       ['all', 'الكل (' + files.length + ')'],
       ['free', '🟢 مجاني (' + freeN + ')'],
-      ['rest', '🔒 للبوت (' + (files.length - freeN) + ')']
+      ['rest', '💎 حصري (' + (files.length - freeN) + ')']
     ];
     opts.forEach(function (o) {
       var chip = el('button', 'fchip' + (state.catFilter === o[0] ? ' on' : ''));
@@ -1571,7 +1549,7 @@
 
     if (!files.length && !cats.length) {
       viewEl.appendChild(emptyBox('لا توجد نتائج مطابقة.<br>جرّب كلمات أقصر أو اسم المادة.', 'search'));
-      if (filtersActive()) viewEl.appendChild(actionButton('مسح الفلاتر والبحث مجدداً', 'refresh', 'secondary-btn', function () {
+      if (filtersActive()) viewEl.appendChild(actionButton('مسح التصفية', 'refresh', 'secondary-btn', function () {
         state.filters = { lv: '', sb: '', tp: '', ac: '' }; render();
       }));
       return;
@@ -1588,7 +1566,7 @@
       viewEl.appendChild(list);
       if (files.length > 40) {
         viewEl.appendChild(el('div', 'result-meta',
-          'تُعرض النتائج على دفعات — استخدم الفلاتر لتضييقها.'));
+          'اختر المستوى والمادة لتجد ما يناسبك.'));
       }
     }
   }
@@ -1603,7 +1581,7 @@
           : ACCESS_LABEL[ft[k]] || ft[k]);
       var chip = el('button', 'fchip on', label + ' ✕');
       chip.type = 'button';
-      chip.setAttribute('aria-label', 'إزالة الفلتر');
+      chip.setAttribute('aria-label', 'إزالة التصفية: ' + label);
       chip.addEventListener('click', function () {
         state.filters[k] = '';
         render();
@@ -1635,7 +1613,7 @@
         .sort(function (a, b) { return b.k - a.k; });
       head = 'الأكثر استخداماً';
     } else if (source === 'search') {
-      head = 'نتائج البحث المفلترة';
+      head = 'نتائج البحث';
     } else if (state.filters.ac === 'vip') {
       head = '💎 محتوى VIP';
     }
@@ -1651,7 +1629,7 @@
     var refresh = el('button', 'link-btn');
     refresh.type = 'button';
     refresh.appendChild(svgIcon('sliders', 14));
-    refresh.appendChild(el('span', null, 'فلترة'));
+    refresh.appendChild(el('span', null, 'تصفية'));
     refresh.addEventListener('click', function () { openFilterSheet(base, source, state.query); });
     viewEl.appendChild(sectionTitle(head + ' (' + files.length + ')', refresh));
 
@@ -1680,7 +1658,7 @@
     }
 
     if (!files.length) {
-      viewEl.appendChild(emptyBox('لا توجد ملفات مطابقة.<br>جرّب إزالة بعض الفلاتر.', 'search'));
+      viewEl.appendChild(emptyBox('لا توجد ملفات مطابقة.<br>جرّب تغيير المستوى أو المادة.', 'search'));
       return;
     }
 
@@ -1766,21 +1744,21 @@
 
     group('المستوى', lvSet, draft, 'lv', function (a, b) { return levelRank(a) - levelRank(b); });
     group('المادة', sbSet, draft, 'sb');
-    group('نوع المورد', rkSet, draft, 'rk');
-    group('الفترة', periodSet, draft, 'period');
+    group('المحتوى', rkSet, draft, 'rk');
+    group('الدورة والمرحلة', periodSet, draft, 'period');
     group('الموسم الدراسي', seasonSet, draft, 'season');
     group('النوع', tpSet, draft, 'tp', function (a, b) {
       return TYPES.findIndex(function (t) { return t.key === a; })
         - TYPES.findIndex(function (t) { return t.key === b; });
     }, function (v) { return (TYPES.find(function (t) { return t.key === v; }) || {}).label || v; });
-    group('الوصول', acSet, draft, 'ac', function (a, b) {
-      return ['free', 'bot', 'vip'].indexOf(a) - ['free', 'bot', 'vip'].indexOf(b);
+    group('الاشتراك', acSet, draft, 'ac', function (a, b) {
+      return ['free', 'vip'].indexOf(a) - ['free', 'vip'].indexOf(b);
     }, function (v) { return ACCESS_LABEL[v] || v; });
     // chip labels for type/access groups use canonical labels
     Array.prototype.forEach.call(sheet.querySelectorAll('.fgroup-chips'), function () { /* noop */ });
 
     if (!sheet.querySelector('.fgroup')) {
-      showToast('لا تتوفر فلاتر إضافية لهذه القائمة');
+      showToast('لا توجد خيارات تصفية لهذه القائمة');
       return;
     }
 
@@ -1796,7 +1774,7 @@
 
     var clearAll = el('button', 'secondary-btn');
     clearAll.type = 'button';
-    clearAll.textContent = 'مسح كل الفلاتر';
+    clearAll.textContent = 'مسح التصفية';
     clearAll.addEventListener('click', function () {
       haptic();
       Object.keys(draft).forEach(function (key) { draft[key] = ''; });
@@ -1828,13 +1806,13 @@
     viewEl.appendChild(sectionTitle('المفضلة (' + favs.length + ')'));
 
     if (!favs.length) {
-      viewEl.appendChild(emptyBox('مفضلتك فارغة.<br>أضف الملفات عبر زر «أضف للمفضلة» في صفحة الملف.', 'star'));
+      viewEl.appendChild(emptyBox('لا توجد ملفات في المفضلة بعد.<br>اضغط النجمة بجانب الملف لحفظه هنا.', 'star'));
       return;
     }
     var list = el('div', 'fgrid');
     favs.forEach(function (f) { list.appendChild(fileRow(f)); });
     viewEl.appendChild(list);
-    viewEl.appendChild(el('div', 'detail-note', 'لإزالة ملف: افتحه ثم اضغط «★ في المفضلة».'));
+    viewEl.appendChild(el('div', 'detail-note', 'لإزالة ملف من المفضلة، افتحه واضغط النجمة مرة أخرى.'));
   }
 
   // guards against double-tap opening the same file twice
@@ -1909,7 +1887,7 @@
     if (opts.external && f.u) {
       var extB = el('button', 'icon-btn');
       extB.type = 'button';
-      extB.setAttribute('aria-label', 'فتح في المتصفح');
+      extB.setAttribute('aria-label', 'قراءة');
       extB.appendChild(svgIcon('externalLink', 19));
       extB.addEventListener('click', function () {
         haptic('light');
@@ -1928,7 +1906,6 @@
     viewEl.innerHTML = '';
 
     // شريط الأيقونات العلوي (تصميم APK): مفضلة + مشاركة + فتح في المتصفح
-    var hasUrl = !!(f.u && /^https?:\/\//i.test(f.u));
     viewEl.appendChild(topActionBar(f, { external: false }));
 
     var box = el('div', 'detail-box');
@@ -1952,13 +1929,13 @@
     }
     info.appendChild(infoCell('fileText', 'النوع', typeOf(f).label));
     var meta = f.meta || {};
-    if (meta.resource_type) info.appendChild(infoCell('bookOpen', 'نوع المورد', meta.resource_type));
-    if (meta.period) info.appendChild(infoCell('clock', 'الفترة', meta.period));
+    if (meta.resource_type) info.appendChild(infoCell('bookOpen', 'المحتوى', meta.resource_type));
+    if (meta.period) info.appendChild(infoCell('clock', 'الدورة والمرحلة', meta.period));
     if (meta.season) info.appendChild(infoCell('clock', 'الموسم الدراسي', meta.season));
     if (meta.has_correction !== undefined && meta.has_correction !== null) info.appendChild(infoCell('check', 'التصحيح', meta.has_correction ? 'مرفق' : 'غير مرفق'));
     if (f.lv) info.appendChild(infoCell('bookOpen', 'المستوى', f.lv));
     if (f.sb) info.appendChild(infoCell('library', 'المادة', f.sb));
-    if (f.k) info.appendChild(infoCell('trend', 'الاستخدامات', String(f.k)));
+    if (f.k) info.appendChild(infoCell('trend', 'المشاهدات', String(f.k)));
     if (info.children.length > 1 || info.children.length % 2 === 1) {
       // خلية توازن عند العدد الفردي حتى تبقى الشبكة 2×2 متناسقة
       if (info.children.length % 2 === 1) info.appendChild(el('div', 'file-info-cell file-info-empty'));
@@ -1967,7 +1944,7 @@
 
     if (meta.description) box.appendChild(el('p', 'resource-description', meta.description));
     if (meta.article_url && /^https?:\/\//i.test(meta.article_url)) {
-      box.appendChild(resourceButton('قراءة الشرح المرتبط', 'secondary-btn', function () { push({type:'viewer',file:f,part:'article'}); }));
+      box.appendChild(resourceButton('عرض الشرح', 'secondary-btn', function () { requestExternalOpen(f,'article'); }));
     }
     if (state.me && state.me.is_admin && state.online) {
       box.appendChild(resourceButton('تنظيم بطاقة المورد', 'secondary-btn', function () { startResourceEdit(f.id); }));
@@ -1979,24 +1956,23 @@
     // البادج — يختلف بحسب حالة المستخدم
     var badge;
     if (access === 'free') {
-      badge = ['detail-badge badge-free', '🟢 مجاني — متاح للقراءة'];
+      badge = ['detail-badge badge-free', 'مجاني'];
     } else if (access === 'vip') {
       badge = isVipUser
-        ? ['detail-badge badge-free', '💎 محتوى حصري — اشتراكك مفعّل ✓']
-        : ['detail-badge badge-vip', '🔒 حصري — محتوى EscuilaVIP'];
-    } else {
-      badge = ['detail-badge badge-bot', '⚡ مجاني — جاهز للتحميل'];
+        ? ['detail-badge badge-free', 'محتوى حصري']
+        : ['detail-badge badge-vip', 'حصري لمشتركي VIP'];
     }
     box.appendChild(el('div', badge[0], badge[1]));
 
-    var read = resourceButton('قراءة داخل التطبيق', 'primary-btn', function () {
-      haptic('light'); push({type:'viewer',file:f,part:'file'});
-    });
-    box.appendChild(read);
-    box.appendChild(resourceButton('تحميل المورد', 'secondary-btn', function () { requestDirectDownload(f); }));
-    box.appendChild(el('p','detail-note', access === 'vip'
-      ? 'يتم التحقق من عضويتك في VIP عند الفتح.'
-      : 'يتم التحقق من الاشتراك في القنوات والمجموعة قبل القراءة أو التحميل.'));
+    if (websiteResource(f)) {
+      var website = resourceButton('قراءة', 'primary-btn', function () { requestExternalOpen(f,'file',website); });
+      box.appendChild(website);
+    } else {
+      var readLabel = {pdf:'قراءة PDF', img:'عرض الصورة', vid:'مشاهدة الفيديو', aud:'استماع'}[typeOf(f).key] || 'فتح الملف';
+      var external = resourceButton(readLabel, 'primary-btn', function () { requestExternalOpen(f,'file',external); });
+      box.appendChild(external);
+      box.appendChild(resourceButton('تحميل', 'secondary-btn', function () { requestDirectDownload(f); }));
+    }
 
     viewEl.appendChild(box);
   }
@@ -2017,7 +1993,7 @@
     hero.appendChild(el('p', null, 'مكتبتك الحصرية، مفضلتك وآخر ملفاتك. كل شيء قريب منك.'));
     var pill = el('div', 'member-status');
     pill.appendChild(svgIcon('check', 16));
-    pill.appendChild(el('span', null, state.online ? 'اشتراك مفعّل' : 'آخر حالة محفوظة'));
+    pill.appendChild(el('span', null, state.online ? 'اشتراك نشط' : 'تعذّر تأكيد الاشتراك'));
     hero.appendChild(pill);
     hero.appendChild(el('div', 'member-expiry', expiryLabel(me)));
     viewEl.appendChild(hero);
@@ -2030,7 +2006,7 @@
       summary.appendChild(stat);
     });
     viewEl.appendChild(summary);
-    viewEl.appendChild(actionButton('افتح مكتبتي الحصرية', 'bookOpen', 'primary-btn member-primary', function () { push({ type: 'vipFiles' }); }));
+    viewEl.appendChild(actionButton('مكتبتي الحصرية', 'bookOpen', 'primary-btn member-primary', function () { push({ type: 'vipFiles' }); }));
 
     var actions = el('div', 'quick-actions');
     actions.appendChild(actionButton('المفضلة', 'star', 'quick-action', function () { switchTab('favs', { noFocus: true }); }));
@@ -2047,20 +2023,19 @@
     if (recent.length) viewEl.appendChild(hScrollRow(selectedLevel() ? 'حصري لمستواك' : 'جديد المحتوى الحصري', recent, function () { push({ type: 'vipFiles' }); }));
 
     var options = el('div', 'vip-opts');
-    options.appendChild(vipOption('refresh', 'تحديث حالة اشتراكي', function () {
+    options.appendChild(vipOption('refresh', 'تحديث اشتراكي', function () {
       if (!state.api || !tg || !tg.initData) { openBotChat('vip'); return; }
       showToast('نتحقق من حالة اشتراكك…');
       apiFetch('/api/me').then(function (r) {
         if (!r.user) throw new Error();
         state.me = r.user; state.online = true; saveMeCache(r.user); render();
         showToast('تم تحديث حالة اشتراكك');
-      }).catch(function () { state.online = false; render(); showToast('تعذّر الاتصال الآن. تحقّق من اشتراكك داخل البوت.'); });
+      }).catch(function () { state.online = false; render(); showToast('تعذّر تحديث اشتراكك. حاول مجددًا.'); });
     }));
-    options.appendChild(vipOption('card', me.vip_days_left <= 7 ? 'ينتهي قريباً · خيارات التجديد' : 'خيارات تجديد اشتراكي', function () {
+    options.appendChild(vipOption('card', me.vip_days_left <= 7 ? 'ينتهي اشتراكك قريبًا · تجديد' : 'تجديد الاشتراك', function () {
       push({ type: 'vip', renewing: true });
     }));
     viewEl.appendChild(options);
-    viewEl.appendChild(el('div', 'vip-note', 'الفتح والتحميل يتحققان من صلاحية اشتراكك عند كل طلب.'));
   }
 
   function renderVip() {
@@ -2100,7 +2075,7 @@
     }
 
     var feats = el('div', 'vip-feats');
-    ['الوصول إلى ' + vipFilesAll().length + ' ملفاً حصرياً متاحاً الآن', 'تصفح الأقسام التعليمية والبحث داخل الحصري', 'احفظ ملفاتك المفضلة وتابع آخر مراجعة', 'حالة اشتراك واضحة ودعم عبر البوت']
+    ['الوصول إلى ' + vipFilesAll().length + ' ملفًا حصريًا', 'دروس وتمارين تساعدك على المراجعة', 'احفظ ملفاتك المفضلة لتعود إليها بسهولة', 'دعم ومساعدة عند الحاجة']
       .forEach(function (t) {
         var row = el('div', 'vip-feat');
         row.appendChild(svgIcon('check', 18));
@@ -2119,7 +2094,7 @@
       pl2.appendChild(el('span', null, 'تحويل بنكي · CCP · PayPal'));
       pm.appendChild(pl2);
       pm.appendChild(el('div', 'price-value', state.madPrice + ' د.م'));
-      pm.appendChild(el('div', 'price-note', 'الوسيلة الأساسية — تفعيل بعد تأكيد الإدارة'));
+      pm.appendChild(el('div', 'price-note', 'التفعيل بعد تأكيد الدفع'));
       pm.addEventListener('click', function () { haptic('light'); openBotChat('vip_request'); });
       prices.appendChild(pm);
     }
@@ -2131,7 +2106,7 @@
       pl1.appendChild(el('span', null, 'نجوم تيليجرام'));
       pc.appendChild(pl1);
       pc.appendChild(el('div', 'price-value', state.starsPrice + ' ⭐'));
-      pc.appendChild(el('div', 'price-note', 'الدفع داخل تيليجرام · التفعيل بعد تأكيد الإدارة'));
+      pc.appendChild(el('div', 'price-note', 'التفعيل بعد تأكيد الدفع ومدة الاشتراك'));
       pc.addEventListener('click', openVipSubscribe);
       prices.appendChild(pc);
     }
@@ -2143,19 +2118,16 @@
     cta.appendChild(svgIcon('card', 17));
     var isSubscriber = !!(state.me && state.me.vip);
     var isExpired = !!(state.me && state.me.expired);
-    cta.appendChild(el('span', null, isSubscriber
-      ? 'تجديد الاشتراك — ' + (state.madPrice > 0 ? state.madPrice + ' د.م' : 'عبر البوت')
-      : (isExpired
-        ? 'جدّد الاشتراك — ' + (state.madPrice > 0 ? state.madPrice + ' د.م' : 'عبر البوت')
-        : 'اطلب الاشتراك الآن' + (state.madPrice > 0 ? ' — ' + state.madPrice + ' د.م' : ''))));
+    cta.appendChild(el('span', null, (isSubscriber || isExpired ? 'تجديد الاشتراك' : 'اشترك الآن')
+      + (state.madPrice > 0 ? ' — ' + state.madPrice + ' د.م' : '')));
     cta.addEventListener('click', function () { haptic('light'); openBotChat('vip_request'); });
     viewEl.appendChild(cta);
     viewEl.appendChild(el('div', 'vip-cta-note',
-      'تؤكد الإدارة مدة الاشتراك وتفعّله بعد الدفع. الكود الجاهز يُفعّل مباشرة.'));
+      'يُفعّل اشتراكك بعد تأكيد الدفع والمدة التي اخترتها.'));
 
     var steps = el('div', 'subscription-steps');
     steps.appendChild(el('h2', null, 'كيف يبدأ اشتراكك؟'));
-    ['تعرّف على المحتوى الحصري قبل الاشتراك', 'اختر طريقة الدفع وأكّد المدة مع الإدارة', 'بعد التفعيل، افتح مكتبتك من مساحة VIP'].forEach(function (text, index) {
+    ['تصفّح المحتوى الحصري', 'اختر طريقة الدفع وأكّد مدة اشتراكك', 'ابدأ التعلم من مكتبتك الحصرية بعد التفعيل'].forEach(function (text, index) {
       var row = el('div', 'subscription-step');
       row.appendChild(el('span', 'step-number', String(index + 1)));
       row.appendChild(el('span', null, text));
@@ -2176,20 +2148,14 @@
     if (state.starsPrice > 0) {
       opts.appendChild(vipOpt('star', 'الدفع بالنجوم — ' + state.starsPrice + ' ⭐', openVipSubscribe));
     }
-    opts.appendChild(vipOpt('bookOpen', 'عاين المكتبة الحصرية', function () { push({ type: 'vipFiles' }); }));
-    opts.appendChild(vipOpt('chat', 'تواصل مع الإدارة', function () { openBotChat('vip_support'); }));
-    opts.appendChild(vipOpt('ticket', 'لدي كود اشتراك', function () { openBotChat('vip_code'); }));
+    opts.appendChild(vipOpt('bookOpen', 'تصفّح المكتبة الحصرية', function () { push({ type: 'vipFiles' }); }));
+    opts.appendChild(vipOpt('chat', 'الدعم والمساعدة', function () { openBotChat('vip_support'); }));
+    opts.appendChild(vipOpt('ticket', 'لدي رمز اشتراك', function () { openBotChat('vip_code'); }));
     viewEl.appendChild(opts);
 
     // زر تيليجرام الأصلي = نفس مسار الزر الرئيسي (طلب يدوي)
-    setMainButton('اطلب الاشتراك — ' + (state.madPrice > 0 ? state.madPrice + ' د.م' : 'عبر البوت'),
+    setMainButton('اشترك الآن' + (state.madPrice > 0 ? ' — ' + state.madPrice + ' د.م' : ''),
       function () { openBotChat('vip_request'); });
-
-    var note = el('div', 'vip-note');
-    note.appendChild(svgIcon('lock', 13));
-    note.appendChild(el('span', null,
-      'الاشتراك والتحقق والتسليم تتم داخل بوت Escuila — التطبيق والبوت نظام واحد'));
-    viewEl.appendChild(note);
   }
 
   /* ─── قسم المحتوى الحصري — نسخة التطبيق من مركز «ملفات VIP» في البوت ───
@@ -2212,7 +2178,7 @@
     gem.appendChild(svgIcon('gem', 26));
     head.appendChild(gem);
     head.appendChild(el('div', 'detail-name', 'المحتوى الحصري'));
-    head.appendChild(el('div', 'vip-tag', all.length + ' ملفاً حصرياً · ' + state.cats.filter(function (c) { return c.locked; }).length + ' قسماً VIP'));
+    head.appendChild(el('div', 'vip-tag', all.length + ' ملفًا حصريًا · ' + state.cats.filter(function (c) { return c.locked; }).length + ' قسمًا حصريًا'));
     viewEl.appendChild(head);
 
     if (isVip) {
@@ -2223,7 +2189,7 @@
       if (me.vip && me.vip_days_left <= 7) {
         var renew = el('button', 'secondary-btn vip-renew-banner');
         renew.type = 'button';
-        renew.textContent = '⏳ اشتراكك ينتهي قريباً — اضغط للتجديد قبل الانتهاء';
+        renew.textContent = 'ينتهي اشتراكك قريبًا · تجديد الاشتراك';
         renew.addEventListener('click', function () { haptic('light'); push({ type: 'vip' }); });
         viewEl.appendChild(renew);
       }
@@ -2234,7 +2200,7 @@
           'انتهى اشتراكك في ' + formatExpiry(me.vip_expires) + ' — جدّد لاستعادة الوصول'));
       } else {
         viewEl.appendChild(el('div', 'vip-live-pill vip-renew-pill',
-          '🔒 المحتوى مقفل — اشترك لفتح ' + all.length + ' ملفاً'));
+          'اشترك في VIP للوصول إلى ' + all.length + ' ملفًا حصريًا'));
       }
       // زر الاشتراك الموحّد — يفتح شاشة الاشتراك نفسها (renderVip) التي
       // يفتحها البوت من كل مداخله: يدوي أساسي + نجوم خيار
@@ -2340,9 +2306,8 @@
     var list = el('div', 'fgrid' + (isVip ? '' : ' vip-locked-grid'));
     renderBatched(list, files, fileRow, 20);
     viewEl.appendChild(list);
-    viewEl.appendChild(el('div', 'detail-note vip-active-note', isVip
-      ? '✓ يتم التحقق من اشتراكك تلقائياً عند فتح كل ملف.'
-      : '💎 تصفّح القائمة واختر ما يناسبك — فعّل اشتراك EscuilaVIP للوصول الفوري إلى كل الملفات.'));
+    if (!isVip) viewEl.appendChild(el('div', 'detail-note vip-active-note',
+      'اختر ما يناسبك من المكتبة، واشترك في VIP لقراءته.'));
   }
 
   /* ─── تصفح سلسلة VIP: نفس شجرة المكتبة تماماً — لا شجرة منفصلة ───
@@ -2408,7 +2373,7 @@
 
     var hereCat = topView.catPid === null ? null : catById(topView.catPid);
     viewEl.appendChild(sectionTitle(topView.catPid === null
-      ? '📂 الأقسام الحصرية — كما في البوت'
+      ? 'الأقسام الحصرية'
       : '📂 ' + (hereCat ? hereCat.name : '')));
 
     if (!kids.length && !directVip.length) {
@@ -2429,7 +2394,7 @@
       if (ctx) info.appendChild(el('div', 'vip-cat-path', ctx));
       card.appendChild(info);
       var meta = el('div', 'meta');
-      meta.appendChild(el('span', 'badge', count + ' VIP'));
+      meta.appendChild(el('span', 'badge', count + ' ملف حصري'));
       meta.appendChild(isVip ? chevEl() : svgIcon('lock', 14));
       card.appendChild(meta);
       card.addEventListener('click', function () {
@@ -2951,74 +2916,54 @@
     viewEl.appendChild(box);
   }
 
-  /* ─── embedded viewer — تصميم APK: عنوان وأيقونات أعلى، بلا أزرار سفلية ─── */
+  /* ─── shared resource access ─── */
 
   function renderMembershipPanel(host, error, retry) {
     host.innerHTML = '';
-    host.appendChild(resourceButton('رجوع', 'reader-control', goBack));
+    host.appendChild(resourceButton('رجوع', 'access-control', goBack));
     var panel = el('section','membership-panel');
-    panel.setAttribute('aria-label','الاشتراك في القنوات');
-    panel.appendChild(el('h2',null,'خطوة واحدة قبل القراءة'));
-    panel.appendChild(el('p',null,error.unavailable ? 'تعذّر فحص الاشتراك الآن. يمكنك إعادة المحاولة؛ لا تحتاج مغادرة التطبيق.' : 'انضم إلى القنوات والمجموعة التالية، ثم عد إلى هنا واضغط تحقق مجددًا.'));
+    panel.setAttribute('aria-label','الانضمام إلى مجتمع Escuila');
+    panel.appendChild(el('h2',null,'انضم لمتابعة التعلّم'));
+    panel.appendChild(el('p',null,error.unavailable ? 'تعذّر التأكد من انضمامك. حاول مجددًا.' : 'انضم إلى القنوات والمجموعة التالية، ثم عد إلى هنا واضغط «تحقق من الانضمام».'));
     (error.destinations || []).forEach(function (target) {
       var row = el('div','membership-destination');
       row.appendChild(el('strong',null,(target.joined ? '✓ ' : '') + target.name));
-      if (/^https:\/\/t\.me\//.test(target.url || '')) row.appendChild(resourceButton(target.joined ? 'فتح' : 'انضمام','reader-control',function () { openTelegramUrl(target.url,true); }));
+      if (/^https:\/\/t\.me\//.test(target.url || '')) row.appendChild(resourceButton(target.joined ? 'فتح' : 'انضمام','access-control',function () { openTelegramUrl(target.url,true); }));
       panel.appendChild(row);
     });
     var note = el('p','membership-error'); note.setAttribute('role','status');
-    var check = resourceButton('تحقق مجددًا','primary-btn',function () {
+    var check = resourceButton('تحقق من الانضمام','primary-btn',function () {
       check.disabled = true; note.textContent = 'جارٍ التحقق…';
       apiFetch('/api/subscription?refresh=1').then(function (result) {
         check.disabled = false;
-        if (result.subscribed) { showToast('تم التحقق — يمكنك القراءة الآن'); retry(); }
+        if (result.subscribed) { showToast('يمكنك المتابعة الآن'); retry(); }
         else { error.destinations = result.destinations; error.unavailable = result.unavailable; renderMembershipPanel(host,error,retry); }
       }).catch(function (e) { check.disabled = false; note.textContent = apiErrMsg(e,'تعذّر التحقق. حاول مجددًا.'); });
     });
     panel.appendChild(check); panel.appendChild(note); host.appendChild(panel);
   }
 
-  function readerError(error, f, host, retry) {
+  function resourceAccessError(error, f, retry) {
     if (error.code === 'subscription_required' || error.code === 'subscription_unavailable') {
-      if (host) renderMembershipPanel(host,error,retry);
-      else push({type:'membership',error:error,retry:function () { goBack(); retry(); }});
+      push({type:'membership',error:error,retry:function () { goBack(); retry(); }});
       return;
     }
     if (error.code === 'vip_required') { if (state.me) state.me.vip = false; push({type:'vip'}); return; }
-    if (!host) { showToast(apiErrMsg(error,'تعذّر تحميل المورد. حاول مجددًا.')); return; }
-    var panel = el('section','membership-panel');
-    panel.appendChild(el('h2',null,'تعذّر فتح المورد'));
-    panel.appendChild(el('p',null,error.status === 401 ? 'افتح التطبيق من زر البوت لربط حسابك أو تجديد جلستك.' : error.message || 'تحقق من اتصال البوت ثم أعد المحاولة.'));
-    panel.appendChild(resourceButton(error.status === 401 ? 'فتح البوت' : 'إعادة المحاولة','primary-btn', error.status === 401 ? function () { openBotChat(); } : retry));
-    if (error.code === 'bot_only') panel.appendChild(resourceButton('استلام عبر البوت','secondary-btn',function () { openInBot(f); }));
-    host.appendChild(panel);
+    if (error.status === 401 || error.code === 'bot_only') {
+      push({type:'resourceError',file:f,error:error,retry:retry}); return;
+    }
+    showToast(apiErrMsg(error,'تعذّر فتح المحتوى. حاول مجددًا.'));
   }
 
-  function renderViewer(f, part) {
+  function renderResourceError(top) {
     viewEl.innerHTML = '';
-    var host = el('div'); viewEl.appendChild(host);
-    readerCleanup = window.EscuilaReader.mount(host, {
-      fileId:f.id, title:f.n, part:part || 'file', onBack:goBack,
-      onFavorite:function () { toggleFav(f.id); showToast(isFav(f.id) ? 'أُضيف إلى المفضلة' : 'أُزيل من المفضلة'); },
-      onDownload:function () { requestDirectDownload(f); }, onSource:openExternalUrl,
-      load:function (signal) {
-        if (!state.api || !tg || !tg.initData) { var missing = new Error('افتح التطبيق من زر البوت لربط حسابك.'); missing.status=401; return Promise.reject(missing); }
-        return apiFetch('/api/file-view/' + f.id + '?part=' + (part || 'file')).then(function (resource) {
-          return fetch(state.api + resource.url, {signal:signal,cache:'no-store'}).then(function (response) {
-            var type = response.headers.get('Content-Type') || '';
-            if (type.indexOf('application/json') !== -1) return response.json().then(function (result) {
-              if (!response.ok || result.ok === false) {
-                var error = new Error(result.error || 'تعذّر فتح المورد'); error.status=response.status; error.code=result.code; error.destinations=result.destinations; error.unavailable=result.unavailable; throw error;
-              }
-              return result;
-            });
-            if (!response.ok) throw new Error('المصدر لا يستجيب الآن');
-            return response.blob().then(function (blob) { return {blob:blob,type:type,kind:'file'}; });
-          });
-        });
-      },
-      onError:function (error, target) { readerError(error,f,target,function () { render(); }); }
-    });
+    viewEl.appendChild(resourceButton('رجوع','access-control',goBack));
+    var error = top.error, panel = el('section','membership-panel');
+    panel.appendChild(el('h2',null,error.status === 401 ? 'أعد فتح Escuila للمتابعة' : 'تعذّر فتح الملف'));
+    panel.appendChild(el('p',null,error.code === 'bot_only' ? 'يمكنك استلام هذا الملف في تيليجرام.' : apiErrMsg(error,'حاول مجددًا بعد قليل.')));
+    panel.appendChild(resourceButton(error.status === 401 ? 'الانتقال إلى تيليجرام' : 'إعادة المحاولة','primary-btn', error.status === 401 ? function () { openBotChat(); } : function () { goBack(); top.retry(); }));
+    if (error.code === 'bot_only') panel.appendChild(resourceButton('استلام في تيليجرام','secondary-btn',function () { openInBot(top.file); }));
+    viewEl.appendChild(panel);
   }
 
   /* ─── deep links from the bot (startapp=cat_<id> / file_<id>) ─── */
@@ -3220,7 +3165,7 @@
         console.error('Escuila library loading failed:', error && error.message);
         fail(navigator.onLine === false
           ? 'لا يوجد اتصال بالإنترنت — تحقق من الشبكة ثم أعد المحاولة.'
-          : 'حدث خطأ أثناء تحميل البيانات',
+          : 'تعذّر تحميل المكتبة. حاول مجددًا.',
           navigator.onLine === false ? 'wifiOff' : 'refresh');
       });
   }
