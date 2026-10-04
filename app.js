@@ -39,6 +39,7 @@
     sessionRetryTimer: null
   };
 
+  var readerCleanup = null;
   var viewEl = document.getElementById('view');
   var searchEl = document.getElementById('search');
   var clearEl = document.getElementById('clearSearch');
@@ -408,14 +409,14 @@
   // three access states: free (in-app viewer), vip (exclusive, bot gate),
   // bot (free but no embeddable link — internal media id, t.me post, …)
   function fileAccess(f) {
-    if (f.u) return 'free';
+    if (f.r === 'free' || f.u) return 'free';
     return f.r === 'vip' ? 'vip' : 'bot';
   }
 
   var ACCESS_LABEL = {
     free: 'مجاني',
     vip: 'VIP',
-    bot: 'عبر البوت'
+    bot: 'مجاني'
   };
 
   var LEVEL_ORDER = ['الأول', 'الثاني', 'الثالث', 'الرابع', 'الخامس', 'السادس'];
@@ -587,7 +588,7 @@
   // المسار الموحد للتحميل المباشر: الخادم وحده يقرر الهدف — رابط عام،
   // رابط مؤقت موقّع لملف داخلي، أو تسليم عبر البوت. الواجهة تنفّذ فقط.
   function requestDirectDownload(f, btn) {
-    if (!state.api) {
+    if (!state.api || !tg || !tg.initData) {
       // لا خادم مهيأ (وضع ثابت بلا نفق) — التسليم عبر البوت مباشرة بلا محاولة فاشلة
       showToast('التحميل المباشر يحتاج اتصال الخادم — جارٍ فتح البوت…');
       setTimeout(function () { openInBot(f); }, 600);
@@ -611,9 +612,7 @@
     }).catch(function (e) {
       if (sp) sp.textContent = label;
       if (btn) btn.disabled = false;
-      if (e.code === 'vip_required') { push({ type: 'vip' }); return; }
-      showToast(apiErrMsg(e, 'تعذر الوصول لخادم ESCUILA — جارٍ فتح البوت…'));
-      setTimeout(function () { openInBot(f); }, 700);
+      readerError(e,f,null,function () { requestDirectDownload(f,btn); });
     });
   }
 
@@ -873,6 +872,8 @@
       }).then(function (j) {
         if (!r.ok || j.ok === false) {
           var err = new Error((j && j.error) || 'تعذر تنفيذ العملية');
+          err.destinations = j && j.destinations;
+          err.unavailable = j && j.unavailable;
           err.code = j && j.code;
           err.status = r.status;
           throw err;
@@ -1098,6 +1099,7 @@
   }
 
   function render() {
+    if (readerCleanup) { readerCleanup(); readerCleanup = null; }
     var top = state.stack[state.stack.length - 1];
     var depth = state.stack.length;
 
@@ -1140,7 +1142,8 @@
     else if (top.type === 'resourceEditor') renderResourceEditor(top);
     else if (top.type === 'cat') renderCat(top.id);
     else if (top.type === 'file') renderFileDetails(top.file);
-    else if (top.type === 'viewer') renderViewer(top.file);
+    else if (top.type === 'viewer') renderViewer(top.file, top.part);
+    else if (top.type === 'membership') renderMembershipPanel(viewEl, top.error, top.retry);
     else if (top.type === 'vip') renderVip();
     else if (top.type === 'vipFiles') renderVipFiles();
     else if (top.type === 'results') renderResults(top.source, top.q, top.mode);
@@ -1281,8 +1284,6 @@
       cont.appendChild(cinfo);
       cont.appendChild(chevEl());
       cont.addEventListener('click', function () {
-        if (tooSoon()) return;
-        // صفحة التفاصيل أولاً — القراءة نفسها تفتح في المتصفح من هناك
         openFileDetails(last);
       });
       viewEl.appendChild(cont);
@@ -1928,7 +1929,7 @@
 
     // شريط الأيقونات العلوي (تصميم APK): مفضلة + مشاركة + فتح في المتصفح
     var hasUrl = !!(f.u && /^https?:\/\//i.test(f.u));
-    viewEl.appendChild(topActionBar(f, { external: fileAccess(f) !== 'bot' && hasUrl }));
+    viewEl.appendChild(topActionBar(f, { external: false }));
 
     var box = el('div', 'detail-box');
     box.appendChild(coverEl(f, false));
@@ -1966,7 +1967,7 @@
 
     if (meta.description) box.appendChild(el('p', 'resource-description', meta.description));
     if (meta.article_url && /^https?:\/\//i.test(meta.article_url)) {
-      box.appendChild(resourceButton('قراءة الشرح المرتبط', 'secondary-btn', function () { openExternalUrl(meta.article_url); }));
+      box.appendChild(resourceButton('قراءة الشرح المرتبط', 'secondary-btn', function () { push({type:'viewer',file:f,part:'article'}); }));
     }
     if (state.me && state.me.is_admin && state.online) {
       box.appendChild(resourceButton('تنظيم بطاقة المورد', 'secondary-btn', function () { startResourceEdit(f.id); }));
@@ -1988,88 +1989,14 @@
     }
     box.appendChild(el('div', badge[0], badge[1]));
 
-    if (access === 'free' && /^https:\/\/t\.me\//i.test(f.u)) {
-      // telegram pages can't be framed — hand straight to the app
-      var tgOpen = el('button', 'primary-btn');
-      tgOpen.type = 'button';
-      tgOpen.appendChild(svgIcon('send', 17));
-      tgOpen.appendChild(el('span', null, 'فتح في تيليجرام'));
-      tgOpen.addEventListener('click', function () { openTelegramUrl(f.u, true); });
-      box.appendChild(tgOpen);
-    } else if (access === 'free') {
-      // القراءة تفتح الملف في المتصفح مباشرة (تفضيل المالك — بدل العارض الداخلي)
-      var read = el('button', 'primary-btn');
-      read.type = 'button';
-      read.appendChild(svgIcon('bookOpen', 17));
-      read.appendChild(el('span', null, 'قراءة'));
-      read.addEventListener('click', function () {
-        haptic('light');
-        openExternalUrl(f.u);
-      });
-      box.appendChild(read);
-    } else if (access === 'vip') {
-      // ─── ملف حصري: زر واحد للجميع — الخادم يفصل (مشترك → فتح، غيره → بوابة) ───
-      var openLive = el('button', 'primary-btn vip-open-btn');
-      openLive.type = 'button';
-      openLive.appendChild(svgIcon('bookOpen', 19));
-      openLive.appendChild(el('span', null, isVipUser ? '▶ اقرأ الآن' : '▶ فتح الملف'));
-      openLive.addEventListener('click', function () {
-        haptic('light');
-        if (!state.api) {
-          showToast('الفتح يحتاج اتصال الخادم — جارٍ فتح البوت…');
-          openInBot(f);
-          return;
-        }
-        openLive.disabled = true;
-        openLive.querySelector('span').textContent = 'جارٍ الفتح…';
-        // file-access يفصل من الخادم بغض النظر عمّا يظهر في الواجهة —
-        // الحالة المحلية قد تكون كاشاً قديماً
-        apiFetch('/api/file-access/' + f.id).then(function (r) {
-          openLive.disabled = false;
-          openLive.querySelector('span').textContent = '▶ اقرأ الآن';
-          if (r.mode === 'web' && r.url) {
-            recordRecent(f.id);
-            // فتح في المتصفح مباشرة — نفس تجربة «قراءة» (تفضيل المالك)
-            openExternalUrl(r.url);
-          } else if (r.mode === 'download' && r.url) {
-            openExternalUrl(state.api + r.url);
-          } else {
-            // ملف حصري بلا رابط عام — تحميل مباشر بمعرّف داخلي بدل مغادرة التطبيق
-            requestDirectDownload(f, null);
-          }
-        }).catch(function (e) {
-          openLive.disabled = false;
-          openLive.querySelector('span').textContent = '▶ اقرأ الآن';
-          if (e.code === 'vip_required') {
-            // الخادم أكّد أن المستخدم غير مشترك — حدّث الحالة واعرض شاشة الاشتراك
-            if (state.me) { state.me.vip = false; }
-            push({ type: 'vip' });
-          } else {
-            showToast(apiErrMsg(e, 'تعذر الوصول لخادم ESCUILA — جارٍ فتح البوت…'));
-            setTimeout(function () { openInBot(f); }, 700);
-          }
-        });
-      });
-      box.appendChild(openLive);
-
-      box.appendChild(el('div', 'detail-note vip-active-note', isVipUser
-        ? '✓ يتم التحقق من اشتراكك تلقائياً عند الفتح.'
-        : '💎 هذا الملف ضمن المحتوى الحصري لمشتركي EscuilaVIP — فعّل اشتراكك وافتحه مباشرة من هنا.'));
-    } else {
-      // ─── ملفات التحميل المباشر: زر واحد — والتحويل للبوت تلقائي عند الحاجة ───
-      var dlBtn = el('button', 'primary-btn');
-      dlBtn.type = 'button';
-      dlBtn.appendChild(svgIcon('download', 17));
-      dlBtn.appendChild(el('span', null, 'تحميل مباشر'));
-      dlBtn.addEventListener('click', function () {
-        haptic('light');
-        requestDirectDownload(f, dlBtn);
-      });
-      box.appendChild(dlBtn);
-
-      box.appendChild(el('div', 'detail-note',
-        'اضغط للتحميل والفتح مباشرة. إن تعذّر ذلك، سيتم توجيهك آلياً لاستلامه.'));
-    }
+    var read = resourceButton('قراءة داخل التطبيق', 'primary-btn', function () {
+      haptic('light'); push({type:'viewer',file:f,part:'file'});
+    });
+    box.appendChild(read);
+    box.appendChild(resourceButton('تحميل المورد', 'secondary-btn', function () { requestDirectDownload(f); }));
+    box.appendChild(el('p','detail-note', access === 'vip'
+      ? 'يتم التحقق من عضويتك في VIP عند الفتح.'
+      : 'يتم التحقق من الاشتراك في القنوات والمجموعة قبل القراءة أو التحميل.'));
 
     viewEl.appendChild(box);
   }
@@ -3026,106 +2953,72 @@
 
   /* ─── embedded viewer — تصميم APK: عنوان وأيقونات أعلى، بلا أزرار سفلية ─── */
 
-  function renderViewer(f) {
-    viewEl.innerHTML = '';
-
-    var wrap = el('div', 'viewer-wrap');
-
-    // الشريط العلوي: العنوان + أيقونتا المفضلة والفتح في المتصفح (كما في APK)
-    var bar = el('div', 'viewer-bar');
-    var barTitle = el('div', 'viewer-title', f.n);
-    bar.appendChild(barTitle);
-    var barActions = el('div', 'viewer-bar-actions');
-
-    var favBtn = el('button', 'icon-btn icon-fav' + (isFav(f.id) ? ' on' : ''));
-    favBtn.type = 'button';
-    favBtn.setAttribute('aria-label', isFav(f.id) ? 'إزالة من المفضلة' : 'إضافة إلى المفضلة');
-    favBtn.setAttribute('aria-pressed', String(isFav(f.id)));
-    favBtn.appendChild(svgIcon('star', 18));
-    if (isFav(f.id)) favBtn.classList.add('star-filled');
-    favBtn.addEventListener('click', function () {
-      toggleFav(f.id);
-      favBtn.classList.toggle('on');
-      favBtn.classList.toggle('star-filled');
-      favBtn.setAttribute('aria-label', isFav(f.id) ? 'إزالة من المفضلة' : 'إضافة إلى المفضلة');
-      favBtn.setAttribute('aria-pressed', String(isFav(f.id)));
+  function renderMembershipPanel(host, error, retry) {
+    host.innerHTML = '';
+    host.appendChild(resourceButton('رجوع', 'reader-control', goBack));
+    var panel = el('section','membership-panel');
+    panel.setAttribute('aria-label','الاشتراك في القنوات');
+    panel.appendChild(el('h2',null,'خطوة واحدة قبل القراءة'));
+    panel.appendChild(el('p',null,error.unavailable ? 'تعذّر فحص الاشتراك الآن. يمكنك إعادة المحاولة؛ لا تحتاج مغادرة التطبيق.' : 'انضم إلى القنوات والمجموعة التالية، ثم عد إلى هنا واضغط تحقق مجددًا.'));
+    (error.destinations || []).forEach(function (target) {
+      var row = el('div','membership-destination');
+      row.appendChild(el('strong',null,(target.joined ? '✓ ' : '') + target.name));
+      if (/^https:\/\/t\.me\//.test(target.url || '')) row.appendChild(resourceButton(target.joined ? 'فتح' : 'انضمام','reader-control',function () { openTelegramUrl(target.url,true); }));
+      panel.appendChild(row);
     });
-    barActions.appendChild(favBtn);
+    var note = el('p','membership-error'); note.setAttribute('role','status');
+    var check = resourceButton('تحقق مجددًا','primary-btn',function () {
+      check.disabled = true; note.textContent = 'جارٍ التحقق…';
+      apiFetch('/api/subscription?refresh=1').then(function (result) {
+        check.disabled = false;
+        if (result.subscribed) { showToast('تم التحقق — يمكنك القراءة الآن'); retry(); }
+        else { error.destinations = result.destinations; error.unavailable = result.unavailable; renderMembershipPanel(host,error,retry); }
+      }).catch(function (e) { check.disabled = false; note.textContent = apiErrMsg(e,'تعذّر التحقق. حاول مجددًا.'); });
+    });
+    panel.appendChild(check); panel.appendChild(note); host.appendChild(panel);
+  }
 
-    if (f.u && /^https?:\/\//i.test(f.u)) {
-      var extBtn = el('button', 'icon-btn');
-      extBtn.type = 'button';
-      extBtn.setAttribute('aria-label', 'فتح في المتصفح');
-      extBtn.appendChild(svgIcon('externalLink', 18));
-      extBtn.addEventListener('click', openExternal);
-      barActions.appendChild(extBtn);
+  function readerError(error, f, host, retry) {
+    if (error.code === 'subscription_required' || error.code === 'subscription_unavailable') {
+      if (host) renderMembershipPanel(host,error,retry);
+      else push({type:'membership',error:error,retry:function () { goBack(); retry(); }});
+      return;
     }
-    bar.appendChild(barActions);
-    wrap.appendChild(bar);
+    if (error.code === 'vip_required') { if (state.me) state.me.vip = false; push({type:'vip'}); return; }
+    if (!host) { showToast(apiErrMsg(error,'تعذّر تحميل المورد. حاول مجددًا.')); return; }
+    var panel = el('section','membership-panel');
+    panel.appendChild(el('h2',null,'تعذّر فتح المورد'));
+    panel.appendChild(el('p',null,error.status === 401 ? 'افتح التطبيق من زر البوت لربط حسابك أو تجديد جلستك.' : error.message || 'تحقق من اتصال البوت ثم أعد المحاولة.'));
+    panel.appendChild(resourceButton(error.status === 401 ? 'فتح البوت' : 'إعادة المحاولة','primary-btn', error.status === 401 ? function () { openBotChat(); } : retry));
+    if (error.code === 'bot_only') panel.appendChild(resourceButton('استلام عبر البوت','secondary-btn',function () { openInBot(f); }));
+    host.appendChild(panel);
+  }
 
-    var stage = el('div', 'viewer-stage');
-
-    var spinner = el('div', 'loading viewer-loading', '⏳ جارٍ فتح الملف…');
-    stage.appendChild(spinner);
-
-    var src = embedUrl(f.u);
-    if (isImageUrl(f.u)) {
-      var img = document.createElement('img');
-      img.className = 'viewer-img';
-      img.alt = f.n;
-      img.onload = function () { spinner.hidden = true; };
-      img.onerror = function () {
-        spinner.hidden = true;
-        hint.textContent = '⚠️ تعذّر تحميل الصورة — افتحها في المتصفح من الأيقونة بالأعلى.';
-        hint.hidden = false;
-      };
-      img.src = f.u;
-      stage.appendChild(img);
-    } else if (src) {
-      var frame = document.createElement('iframe');
-      frame.className = 'viewer-frame';
-      frame.setAttribute('allow', 'autoplay; fullscreen');
-      frame.referrerPolicy = 'no-referrer';
-      // X-Frame-Options refusals are invisible to JS: onload may still fire,
-      // so the top-bar open icon stays available in every case.
-      frame.onload = function () { setTimeout(function () { spinner.hidden = true; }, 400); };
-      frame.src = src;
-      stage.appendChild(frame);
-    } else {
-      spinner.hidden = true;
-      hint.hidden = false;
-      hint.textContent = '⚠️ لا يمكن عرض هذا المحتوى هنا — افتحه في المتصفح من الأيقونة بالأعلى.';
-    }
-    wrap.appendChild(stage);
-
-    var hint = el('div', 'viewer-hint',
-      'لا يظهر المحتوى كاملاً؟ افتحه في المتصفح من الأيقونة بالأعلى ⬆');
-    hint.hidden = true;
-    wrap.appendChild(hint);
-
-    viewEl.appendChild(wrap);
-
-    // لا MainButton داخل العارض — الفتح في المتصفح أصبح أيقونة علوية (تصميم APK)
-    setMainButton(null);
-
-    // slow-source nudge: after 6s point the user at the top-bar icon
-    setTimeout(function () {
-      if (!spinner.hidden) {
-        hint.hidden = false;
-      }
-    }, 6000);
-
-    function openExternal() {
-      if (tooSoon(700)) return;
-      haptic('light');
-      try {
-        if (tg && tg.openLink) tg.openLink(f.u);
-        else window.open(f.u, '_blank');
-      } catch (e) {
-        hint.hidden = false;
-        hint.textContent = '⚠️ تعذّر فتح الملف حالياً، يرجى المحاولة مرة أخرى.';
-      }
-    }
+  function renderViewer(f, part) {
+    viewEl.innerHTML = '';
+    var host = el('div'); viewEl.appendChild(host);
+    readerCleanup = window.EscuilaReader.mount(host, {
+      fileId:f.id, title:f.n, part:part || 'file', onBack:goBack,
+      onFavorite:function () { toggleFav(f.id); showToast(isFav(f.id) ? 'أُضيف إلى المفضلة' : 'أُزيل من المفضلة'); },
+      onDownload:function () { requestDirectDownload(f); }, onSource:openExternalUrl,
+      load:function (signal) {
+        if (!state.api || !tg || !tg.initData) { var missing = new Error('افتح التطبيق من زر البوت لربط حسابك.'); missing.status=401; return Promise.reject(missing); }
+        return apiFetch('/api/file-view/' + f.id + '?part=' + (part || 'file')).then(function (resource) {
+          return fetch(state.api + resource.url, {signal:signal,cache:'no-store'}).then(function (response) {
+            var type = response.headers.get('Content-Type') || '';
+            if (type.indexOf('application/json') !== -1) return response.json().then(function (result) {
+              if (!response.ok || result.ok === false) {
+                var error = new Error(result.error || 'تعذّر فتح المورد'); error.status=response.status; error.code=result.code; error.destinations=result.destinations; error.unavailable=result.unavailable; throw error;
+              }
+              return result;
+            });
+            if (!response.ok) throw new Error('المصدر لا يستجيب الآن');
+            return response.blob().then(function (blob) { return {blob:blob,type:type,kind:'file'}; });
+          });
+        });
+      },
+      onError:function (error, target) { readerError(error,f,target,function () { render(); }); }
+    });
   }
 
   /* ─── deep links from the bot (startapp=cat_<id> / file_<id>) ─── */
