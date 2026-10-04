@@ -1,10 +1,23 @@
 # ملخص المشروع للمواصلة — Escuila
 
-آخر تحديث: 4 أكتوبر 2026، الإصدار `20261004-product5`.
+آخر تحديث: 4 أكتوبر 2026، الإصدار `20261004-product6`.
 
 ## طلب المستخدم وطريقة العمل
 
 المستخدم مبتدئ، يرفع الملفات يدويًا إلى مستودعين على GitHub ثم يشغّل سكربت تحديث في Termux. المطلوب تحسين المنتج عمليًا، خصوصًا تنظيم المحتوى وإدارته وتجربة الهاتف، مع الحفاظ على البيانات والاشتراك وVIP وصلاحيات القراءة والتحميل. لا يحتاج طلب موافقة على التعديلات الصغيرة. سلّم تحديثات بمسارات صحيحة وتعليمات عربية.
+
+## إصلاح نقل الملفات والمزامنة — product6
+
+- الطلب: إصلاح عرض الملفات وFailed to fetch وGitHub 422 داخل المشروع القائم مع الحفاظ على التصميم. نسخة الأصول الحالية `20261004-product6`. CSS والشعار لم يتغيرا. صفحة resourceLinks تستعمل أسماء صفوف الجداول والصيغ المعروفة، وحالات empty/error/cache المطلوبة، ورابط المصدر الثانوي بعد البطاقات. Google Docs له فعل فتح عندما لا يوجد تنزيل مباشر.
+- السبب المقاس على GitHub Pages الحالي `https://escuila.github.io/escuila-miniapp/`: health=200 وOPTIONS=204، لكن GET `/api/resource-links/article/1976357458372664489` يرجع 405 دون CORS. أعاد متصفح المنشور TypeError/Failed to fetch مع غياب Access-Control-Allow-Origin. مسار GET غير مسجل في الخدمة العاملة؛ لم نصل إلى عملية الهاتف لتحديد هل لم يحدث ملفها أم لم تعد تشغيلها. الحزم يجب أن ترفع كاملة، خاصة services وutils، ثم تحديث البوت وإعادة تشغيله. أدلة JSON في deliverables/product6/qa؛ لم ننشر الإصلاح.
+- `services/mini_api.py`: مصنع `create_mini_app()` مشترك للتشغيل والاختبارات يسجل OPTIONS/health/routes. HTTPException على /api يعود JSON وحالة 404/405 وCORS. OPTIONS max-age=300. health يحتوي release/features=[resource-links-v2]. `start_mini_api` يرفع OSError عند تعارض المنفذ. `update-bot.sh` يطابق main.py بمساره الكامل ثم يفحص الخدمة بواسطة `utils/check_mini_api.py` بعد التشغيل؛ `/mini_status` يفحص النسخة العاملة محليًا وعامًا.
+- `apiFetch`: يثبت Content-Type JSON لكل body، ويتحقق من API base كـHTTPS دون loopback في الإنتاج. عند فشل GET بالنقل يقرأ settings الحديثة ويكرر GET فقط إذا تغير API؛ لا يكرر POST تلقائيًا. logs [files] تعرض endpoint/status وملخص response/count/source/error، دون initData أو روابط سرية. المصدر يستعمل article-read المستقل عند غياب مسار الملفات الجديد. HTTP401/403/404 يمحو القائمة المخزنة؛ كل open يعيد فحص شروط الخادم. المصدر VIP يحتاج قرار خادم جديد حتى مع الكاش.
+- كاش `resource_links`: ذاكرة فقط، حتى 64 مصدرًا، fresh=600s، واحتفاظ بالقديم 86400s بعد fresh TTL. يعيد القديم بسرعة ويحدثه في الخلفية، وforce refresh ينتظر المحاولة. فشل تحديث يعود بآخر نجاح مع failed/stale؛ maps locks/errors تُنظف. التطبيق يحتفظ في RAM حتى 48 قائمة حسب uid/path دون كلمة مرور أو رابط تصحيح. source_url رابط صفحة الأب بعد مصادقة وفحص وصول، وليس رابط مرفق. GET ?refresh=1 يصل إلى extract(refresh=True). شروط secret_links من SQL تُقرأ دائمًا، وتستبعد protected identities من public cache.
+- parser يبقي hidden/correction دون تنفيذ scripts. يستعمل row context للأسماء مثل «تحميل»، والصيغة المعروفة فقط، وروابط relative على sourceURL؛ Drive folders ليست ملفات. docs.google.com يعطي open_only. `_fetch` في site_library يتبع حتى 3 تحويلات HTTPS داخل escuila.info فقط ويمنع التكرار والخروج من النطاق، مع حد 8MiB السابق.
+- GitHub: `normalize_github_path/contents_path` لكل Contents GET/PUT؛ إزالة leading slash وbackslash وتكرار الفواصل ورفض traversal. `_remote_file(metadata_only=True)` يقرأ changed files قبل PUT للحصول على SHA الحالي؛ 404 ينشئ دون SHA، وتغير SHA عن snapshot يعطي409 لحفظ الكتابة المتزامنة. 409 أو فقدان رد الرفع يعقبه فحص SHA: نجاح عند desired SHA أو إعادة محدودة عند بقاء القديم. 422 له اسم ملف ورسالة مفهومة؛ raw GitHub JSON في logger فقط. sync يعيد failed[] مع path/status/reason ويكمل باقي الملفات؛ HTML لا ينشر عند فشل UI asset، وCLI يعطي مزامنة جزئية وexit1. ui_files يشمل manifest/sw/styles عند وجودها. الاستخراج لا يستدعي GitHub.
+- `public_api_url` في exporter يرفض HTTP وloopback وprivate IP وcredentials. عنوان الاستماع المحلي 127.0.0.1 يبقى داخليًا ولا يُصدر إلى settings. قفل sync ومقارنة Git Trees SHA باقية. لا migration جديدة؛ schema14 وأعلام وحقوق الوصول باقية.
+- التحقق النهائي: 67 Python و91 browser checks (37 experience +24 discovery +17 files +13 live). جُلب فهرس الموقع الكامل، 525 موردًا وقت الاختبار. أربع صفحات فعلية تغطي خمس حالات: ملف واحد، 15 ملفًا مع استبعاد 8 مرشحات محمية، Drive، بلا ملفات، وPDF+Word بمرفقين. المثال Word في Google Docs لذا اختُبر فتحه؛ القراءة والتحميل منفصلان. كل اختبارات الصلاحيات بقواعد مؤقتة وتوكن اختبار، دون رسائل إنتاج أو كتابة GitHub.
+- اختبارات جديدة: tests/files.spec.cjs وlive-files.spec.cjs وtest_files_transport.py. fixture يدعم `ESCUILA_TEST_LIVE_FILES=1` للاستخراج الفعلي عبر خادم اختبار محلي فقط، ويتطلب _work/live-files-samples.json من مسح الموقع؛ لا يُستخدم لتشغيل إنتاج. Telegram Android وTermux والدفع والبث ونشر GitHub لم تختبر فعليًا. اقرأ REPAIR_REPORT_AR وTEST_REPORT_AR وUPDATE_GUIDE_AR قبل المتابعة.
 
 ## الرئيسية والمرفقات والمزامنة — product5
 
@@ -99,7 +112,7 @@
 ## الواجهة والمفضلة
 
 - `miniapp/app.js` هو المصدر العامل. `index.html` يحمّل `admin-workspace.js` و`product.css` قبل التطبيق.
-- نسخة الأصول `20261004-product5`. حدث `handlers/mini_status.py` عند تغييرها.
+- نسخة الأصول `20261004-product6`. حدث `handlers/mini_status.py` عند تغييرها.
 - البحث العربي متعدد الكلمات والمطبع موجود ويُحافظ عليه. فهرس الإدارة يوحّد الهمزات والتشكيل وة/ه/ى/ي أيضًا.
 - المفضلة الحديثة وعمليات البحث والأخيرة والمستوى محلية باسم منفصل لكل حساب Telegram، وCloudStorage للمفضلة يستخدم المفتاح القديم المتوافق. المفضلة القديمة غير المفصولة تُنقل للحساب الأول فقط، فلا تنتقل تلقائيًا إلى حساب ثانٍ على الجهاز.
 - الهوية المحفوظة محليًا تُقبل للعرض فقط إذا وافق ID حساب Telegram المفتوح. الصلاحية الإدارية تحتاج اتصالًا موثقًا.
