@@ -18,6 +18,18 @@ button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-v
 .category-row, .primary-btn, .secondary-btn, .link-btn, #page-back, #clearSearch { min-height:44px; }
 .icon-btn { min-width:44px; min-height:44px; }
 .content-select-wrap { display:flex; align-items:center; justify-content:center; flex:0 0 44px; min-height:44px; cursor:pointer; }
+.organization-review { margin-bottom:16px; padding:16px; border:1px solid var(--border); border-radius:var(--radius-lg); background:var(--surface); }
+.organization-review h2 { font-size:17px; margin:0 0 8px; }
+.organization-review p, .delete-section p { line-height:1.8; overflow-wrap:anywhere; }
+.organization-review button { width:100%; margin:6px 0; white-space:normal; }
+.delete-section { grid-column:1/-1; border-top:1px solid var(--border); padding-top:14px; }
+.delete-section h3 { font-size:16px; }
+.danger-btn { min-height:44px; border:1px solid currentColor; border-radius:var(--radius-md); padding:10px 16px; background:var(--surface); color:#b62e40; font:inherit; cursor:pointer; }
+.danger-btn:disabled { opacity:.5; cursor:default; }
+.delete-confirm { padding:12px; border:1px solid var(--border); border-radius:var(--radius-md); }
+.delete-confirm[hidden] { display:none; }
+.delete-confirm button { margin:4px; }
+@media(prefers-color-scheme:dark) { .danger-btn { color:#ff96a4; } }
 @media(max-width:380px) { .category-tools { grid-template-columns:1fr; } .resource-actions { flex-wrap:wrap; } }
 @media(prefers-color-scheme:dark) { body:not(.telegram-theme) { --bg:#181827; --text:#efedf7; --hint:#b2acc4; --secondary-bg:#202034; --surface:#222235; --canvas:#181827; --border:rgba(200,192,230,.18); --brand-soft:rgba(160,133,240,.14); --link:#b79bff; --btn:#825bdb; } }
 @media(prefers-reduced-motion:reduce) { *, *::before, *::after { animation-duration:.01ms !important; transition-duration:.01ms !important; scroll-behavior:auto !important; } }

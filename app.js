@@ -2531,7 +2531,7 @@
   /* ─── admin panel (جلسة أدمن موثقة فقط) ─── */
 
   function logLabel(a) {
-    return { vip_activate:'تفعيل VIP', vip_extend:'تمديد VIP', vip_revoke:'إلغاء VIP', resource_draft_create:'إضافة إلى الوارد', resource_edit_start:'بدء تعديل مورد', resource_draft_save:'حفظ مسودة', resource_publish:'نشر مورد', resource_archive:'أرشفة مسودة', resource_restore:'استعادة مسودة', category_create:'إضافة قسم', category_save:'تعديل قسم' }[a] || 'تحديث إداري';
+    return { vip_activate:'تفعيل VIP', vip_extend:'تمديد VIP', vip_revoke:'إلغاء VIP', resource_draft_create:'إضافة إلى الوارد', resource_edit_start:'بدء تعديل مورد', resource_draft_save:'حفظ مسودة', resource_publish:'نشر مورد', resource_archive:'أرشفة مسودة', resource_restore:'استعادة مسودة', resource_delete_archived:'حذف مسودة مؤرشفة', category_create:'إضافة قسم', category_save:'تعديل قسم', category_delete:'حذف قسم فارغ', category_move_resources:'نقل موارد قسم' }[a] || 'تحديث إداري';
   }
 
   function resourceButton(label, cls, action) {
@@ -2735,6 +2735,8 @@
       field('unit', 'الوحدة أو الدرس', null, item.metadata.unit).maxLength = 100;
       field('has_correction', 'هل أرفقت التصحيح؟', [{value:'true',label:'نعم، مرفق'}, {value:'false',label:'لا، غير مرفق'}], item.metadata.has_correction);
       field('is_premium', 'الوصول للمورد', [{value:'false',label:'مجاني'}, {value:'true',label:'VIP'}], item.is_premium);
+      var keepVip = !!item.is_premium;
+      if (keepVip) controls.is_premium.querySelector('[value="false"]').disabled = true;
       var accessNote = el('p', 'resource-attachment');
       form.appendChild(accessNote);
       function categoryAccessNote() {
@@ -2742,7 +2744,8 @@
         while (current && !seen[current.id]) {
           seen[current.id] = true; locked = locked || !!current.is_premium; hidden = hidden || !current.is_visible; current = cats[current.parent_id];
         }
-        accessNote.textContent = hidden ? 'القسم مخفي عن المستخدمين. اختر قسمًا ظاهرًا للنشر.' : locked ? 'هذا القسم حصري: يتطلب المورد اشتراك VIP حتى عند اختيار مجاني.' : '';
+        if (keepVip) controls.is_premium.value = 'true';
+        accessNote.textContent = (keepVip ? 'تبقى حماية VIP محفوظة حتى عند نقل المورد إلى قسم مجاني. ' : locked ? 'هذا القسم حصري؛ سيُحفظ المورد لمشتركي VIP. ' : '') + (hidden ? 'القسم مخفي عن المستخدمين. اختر قسمًا ظاهرًا للنشر.' : '');
         accessNote.hidden = !accessNote.textContent;
       }
       controls.category_id.addEventListener('change', categoryAccessNote); categoryAccessNote();
@@ -2788,6 +2791,18 @@
           apiFetch('/api/admin/resource/' + item.id,{method:'POST',body:{action:'restore',version:item.version}}).then(function () { showToast('أُعيدت المسودة إلى الوارد'); render(); })
             .catch(function (e) { restore.disabled = false; error.textContent = e.message; error.hidden = false; });
         }); form.appendChild(restore);
+        var deletion = el('section', 'delete-section');
+        deletion.appendChild(el('p', null, 'حذف المسودة من الأرشيف نهائي. المورد المنشور وملفه الأصلي يبقيان محفوظين.'));
+        var confirmDelete = el('div', 'delete-confirm'); confirmDelete.hidden = true; confirmDelete.setAttribute('role','group'); confirmDelete.setAttribute('aria-label','تأكيد حذف المسودة');
+        var removeArchived = resourceButton('حذف من الأرشيف', 'danger-btn', function () { confirmDelete.hidden = false; removeArchived.hidden = true; confirmArchived.focus(); });
+        var confirmArchived = resourceButton('تأكيد الحذف نهائيًا', 'danger-btn', function () {
+          restore.disabled = true; confirmArchived.disabled = true; cancelArchived.disabled = true; error.hidden = true;
+          apiFetch('/api/admin/resource/' + item.id,{method:'POST',body:{action:'delete_archived',version:item.version,confirm:true}}).then(function () { clearDraftRecovery(); showToast('حُذفت المسودة من الأرشيف'); goBack(); })
+            .catch(function (e) { restore.disabled = false; confirmArchived.disabled = false; cancelArchived.disabled = false; error.textContent = e.message; error.hidden = false; });
+        });
+        var cancelArchived = resourceButton('إلغاء الحذف', 'secondary-btn', function () { confirmDelete.hidden = true; removeArchived.hidden = false; removeArchived.focus(); });
+        confirmDelete.appendChild(el('p', null, 'حذف «' + item.name + '» من الأرشيف؟')); confirmDelete.appendChild(confirmArchived); confirmDelete.appendChild(cancelArchived);
+        deletion.appendChild(removeArchived); deletion.appendChild(confirmDelete); form.appendChild(deletion);
       }
       form.addEventListener('submit', function (e) { e.preventDefault(); submit(false); });
       ['resource_type','subject','level'].forEach(function(key){form.insertBefore(controls[key].parentNode,controls.name.parentNode.nextSibling);});
@@ -2835,6 +2850,7 @@
           return apiFetch('/api/admin/resource/' + item.id, {method:'POST',body:{action:'save',version:item.version,data:data}});
         }).then(function (saved) {
           item = saved.item;
+          keepVip = !!item.is_premium; controls.is_premium.querySelector('[value="false"]').disabled = keepVip; categoryAccessNote();
           clearDraftRecovery(); recoveryKey = 'escuila_draft_' + state.me.id + '_' + item.id;
           if (recoveryNote) recoveryNote.remove();
           if (!approve) { showToast('حُفظت المسودة'); unlock(); return; }
