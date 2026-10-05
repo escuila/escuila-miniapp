@@ -148,6 +148,19 @@ body.dark { --bg:var(--tg-theme-bg-color,#181827); --text:var(--tg-theme-text-co
 .attachment-actions button { flex:1; min-width:0; margin:0; font-size:13px; }
 .attachment-feedback { grid-column:1/-1; line-height:1.8; font-size:13px; }
 .attachment-feedback:empty { display:none; }
+.attachment-site-btn { width:100%; min-height:50px; margin:8px 0 16px; font-size:14px; }
+.attachment-badges { display:flex; align-items:center; flex-wrap:wrap; gap:7px; margin-top:6px; }
+.attachment-protected > .svg-ic { color:var(--vip-fg); }
+.attachment-free-badge { background:var(--brand-soft); color:var(--link); font-size:11px; padding:3px 7px; border-radius:7px; font-weight:700; }
+.attachment-info .attachment-state { color:var(--text); font-size:12px; line-height:1.8; }
+.attachment-conditions { background:var(--brand-soft); color:var(--text); border:1px solid var(--border); border-radius:12px; padding:12px; }
+.attachment-conditions strong { font-size:13px; display:block; }
+.attachment-conditions p { margin:6px 0 10px; line-height:1.9; }
+.attachment-conditions button { margin:0; width:100%; min-height:46px; white-space:normal; font-size:12px; }
+.attachment-manage { grid-column:1/-1; border-top:1px solid var(--border); padding-top:12px; }
+.attachment-manage span { display:block; font-size:12px; margin-bottom:6px; color:var(--hint); }
+.attachment-manage button { width:100%; min-height:44px; margin:0; font-size:12px; }
+.attachment-admin-note { font-size:12px; line-height:1.9; color:var(--hint); }
 .attachment-code { display:flex; gap:8px; }
 .attachment-code input { min-width:0; width:100%; }
 .attachment-code button { width:auto; margin:0; white-space:nowrap; }
