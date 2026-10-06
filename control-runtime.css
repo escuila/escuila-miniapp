@@ -1,0 +1,22 @@
+html {font-size:var(--control-font-size,16px)}
+body {font-family:var(--control-font,-apple-system,"Segoe UI",Tahoma,Arial,sans-serif);font-size:var(--control-font-size,16px)}
+#search {font-size:calc(var(--control-font-size,15px) - 1px)}
+.welcome-copy h1 {font-size:calc(var(--control-font-size,15px) + 6px)}
+.welcome-copy p,.discovery-info h3 {font-size:calc(var(--control-font-size,15px) - 2px)}
+.discovery-info p {font-size:calc(var(--control-font-size,15px) - 4px)}
+.attachment-info h2,.detail-name {font-size:calc(var(--control-font-size,15px) + 2px)}
+[hidden] {display:none!important}
+[data-control-home="true"] {display:flex;flex-direction:column;gap:var(--control-space,14px)}
+[data-control-home="true"] > * {margin-block:0;flex-shrink:0}
+[data-design-element="cards"],.home-welcome,.home-filter,.attachment-card {border-radius:var(--control-radius,18px)}
+[data-design-element="cards"] {padding:var(--control-card-padding,16px)}
+html[data-card-layout="list"] .latest-grid,html[data-card-layout="list"] .discovery-grid {grid-template-columns:1fr}
+html[data-card-image="hide"] .discovery-card > .cover {display:none}
+html[data-image-ratio="square"] .discovery-card .cover {aspect-ratio:1/1}
+.custom-file-icon {font-size:40px;line-height:1.4;overflow:hidden;max-width:90%;text-align:center}
+.control-notices {display:grid;gap:10px;order:-1}
+.control-notices article,.control-ad {border:1px solid var(--border);border-radius:var(--control-radius,18px);padding:16px;background:var(--surface);line-height:1.8}
+.control-ad {display:grid;gap:5px;margin:12px 0}.control-ad small {color:var(--hint)}
+.control-notices p,.control-ad p {margin:4px 0}
+.reading-viewport > .control-ad {margin:78px 12px 16px;direction:rtl;position:relative;z-index:1}
+.reading-viewport > .control-ad[data-ad-slot="after"] {margin:16px 12px 90px}

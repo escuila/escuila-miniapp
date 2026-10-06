@@ -406,7 +406,7 @@
   function rebuildIndex(){
     state.catById={};state.filesByCat={};state.catCounts={};state.fileById={};
     state.articleLinkedIds={};
-    state.articleFiles=state.articles.map(function(a){var f={id:'article_'+a.id,a:a.id,parentFile:a.file_id,labels:a.labels||[],n:a.n,t:a.t,lv:a.lv,sb:a.sb,r:a.r,w:true,date:a.date,meta:{description:a.description||''}};f._search=normalize([a.n,a.lv,a.sb].concat(a.labels||[]).join(' '));state.fileById[f.id]=f;return f;});
+    state.articleFiles=state.articles.map(function(a){var f={id:'article_'+a.id,a:a.id,parentFile:a.file_id,labels:a.labels||[],n:a.n,t:a.t,icon:a.icon,pinned:a.pinned,order:a.order,lv:a.lv,sb:a.sb,r:a.r,w:true,date:a.date,meta:{description:a.description||'',resource_type:a.ty||'',period:a.pe||''}};f._search=normalize([a.n,a.lv,a.sb].concat(a.labels||[]).join(' '));state.fileById[f.id]=f;return f;});
     state.cats.forEach(function(c){state.catById[c.id]=c;state.catCounts[c.id]=0;});
     state.files.forEach(function(f){state.fileById[f.id]=f;(state.filesByCat[f.c]||(state.filesByCat[f.c]=[])).push(f);var seen={},cat=f.c;while(state.catById[cat]&&!seen[cat]){seen[cat]=true;state.catCounts[cat]=(state.catCounts[cat]||0)+1;cat=state.catById[cat].parent;}var m=f.meta||{};f._search=normalize([f.n,f.lv,f.sb,m.resource_type,m.unit,m.period,m.season].filter(Boolean).join(' '));});
     state.articleFiles.forEach(function(f){var parent=state.fileById[f.parentFile];if(parent&&websiteResource(parent))state.articleLinkedIds[parent.id]=true;});
@@ -696,10 +696,11 @@
     loadReader().then(function () {
       if (state.stack[state.stack.length-1] !== top) return;
       wait.remove();
+      if(window.EscuilaControl)window.EscuilaControl.setRole(state.me&&state.me.is_admin?'admin':state.me&&state.me.vip?'vip':'ordinary');
       activeReader = window.EscuilaReader.mount({host:viewEl,id:String(top.file.id),name:top.file.n,
         url:state.api+top.resource.url,format:top.resource.format,headers:{'X-Telegram-InitData':tg.initData},tg:tg,
         back:goBack,retry:function () { if(top.preview)render();else requestReaderRetry(top); },resume:!top.preview,
-        download:top.preview?null:function () { if(top.file.attachment)requestAttachmentDownload(top.file);else requestDirectDownload(top.file); },share:top.preview?null:function () { shareFile(top.file.parent||top.file); },
+        download:top.preview||(window.EscuilaControl&&window.EscuilaControl.settings.reader&&window.EscuilaControl.settings.reader.download_enabled===false)?null:function () { if(top.file.attachment)requestAttachmentDownload(top.file);else requestDirectDownload(top.file); },share:top.preview?null:function () { shareFile(top.file.parent||top.file); },
         onError:function (error) { if (!top.preview && (error.status === 401 || error.status === 403)) {
           if(top.file.attachment){showToast('أعد فتح الملف للتحقق من شروط الوصول.');return;}
           apiFetch('/api/file-view/'+top.file.id+'?read=1').catch(function (e) {
@@ -773,6 +774,7 @@
     var box = el('div', 'cover' + (small ? ' cover-sm' : ''));
 
     function mountDesigned() {
+      if (f.icon) { box.appendChild(el('span','custom-file-icon',String(f.icon)));box.appendChild(el('span','cover-type',type.label));return; }
       if (type.key === 'pdf') {
         box.classList.add('pdf-box');
         box.appendChild(pdfThumb(small));
@@ -1040,7 +1042,7 @@
     apiFetch('/api/session', { method: 'POST' }).then(function (r) {
       if (generation !== state.sessionGeneration) return;
       if (!r.user) throw new Error('لم تصل بيانات الحساب');
-      state.me = r.user || null;
+      state.me = r.user || null;if(window.EscuilaControl)window.EscuilaControl.setRole(state.me&&state.me.is_admin?'admin':state.me&&state.me.vip?'vip':'ordinary');
       state.online = !!state.me;
       state.sessionStatus = 'ready';
       if (state.me) saveMeCache(state.me); // حفظ للاستخدام offline
@@ -1085,6 +1087,7 @@
     if (!force && Date.now() - catalogChecked < 45000) return Promise.resolve();
     catalogChecked = Date.now();
     catalogRequest = apiFetch('/api/catalog' + (state.catalogRevision ? '?revision=' + state.catalogRevision : '')).then(function (r) {
+      if(window.EscuilaControl&&r.control)window.EscuilaControl.apply(r.control);
       if (r.unchanged) return;
       var previous = state.fileById;
       state.cats = r.categories;
@@ -1113,7 +1116,7 @@
       if (generation !== state.sessionGeneration) return;
       if (!r.user) return;
       var before = JSON.stringify(state.me);
-      state.me = r.user;
+      state.me = r.user;if(window.EscuilaControl)window.EscuilaControl.setRole(state.me&&state.me.is_admin?'admin':state.me&&state.me.vip?'vip':'ordinary');
       state.me.is_admin = r.user.is_admin || false;
       state.online = true;
       state.sessionStatus = 'ready';
@@ -1382,7 +1385,7 @@
     ['فروض','روائز','تمارين','جذاذات','كراسات'].filter(function(k){return kinds.indexOf(k)!==-1;}).forEach(function(k,i){quick.appendChild(actionButton(k,EscuilaDiscovery.icon(k),'quick-resource quick-'+i,function(){state.homeKind=k;browseHome();}));});
     if(quick.children.length)viewEl.appendChild(quick);
     viewEl.appendChild(sectionTitle('أحدث الموارد',resourceButton('عرض الكل','link-btn',function(){browseHome();})));
-    var latest=matches.slice().sort(function(a,b){var dateA=Date.parse(a.date)||0,dateB=Date.parse(b.date)||0;return dateB-dateA||Number(b.id)-Number(a.id);}).slice(0,6),grid=el('div','latest-grid');
+    var latest=matches.slice().sort(function(a,b){var dateA=Date.parse(a.date)||0,dateB=Date.parse(b.date)||0;return pinnedOrder(a,b)||dateB-dateA||Number(b.id)-Number(a.id);}).slice(0,6),grid=el('div','latest-grid');
     latest.forEach(function(f){grid.appendChild(discoveryCard(f));});viewEl.appendChild(grid);
     if(!latest.length)viewEl.appendChild(el('p','empty-note','لا توجد موارد بهذه المعايير. اختر مستوى آخر أو كل الموارد.'));
     viewEl.appendChild(actionButton('تصفح موارد escuila.info','externalLink','home-source-link',function(){push({type:'articles'});}));
@@ -1394,7 +1397,7 @@
   function kindValues(files){var seen={};files.forEach(function(f){seen[f._kind]=true;});return Object.keys(seen).sort();}
   function browseHome(){state.query='';searchEl.value='';clearEl.hidden=true;state.filters={lv:selectedLevel(),rk:state.homeKind,pg:state.homeProgramme,sb:'',tp:'',ac:''};push({type:'results',source:'all'});}
   function programmePicker(value,change){var group=el('div','programme-picker');group.setAttribute('aria-label','المسار التعليمي');[['','كل المحتوى'],['general','المحتوى العام'],['pioneer','المدرسة الرائدة']].forEach(function(p){var b=el('button','programme-choice'+(value===p[0]?' on':''),p[1]);b.type='button';b.setAttribute('aria-pressed',String(value===p[0]));b.addEventListener('click',function(){change(p[0]);});group.appendChild(b);});return group;}
-  function discoveryCard(f){var card=el('button','discovery-card');card.type='button';card.appendChild(coverEl(f,false));var info=el('div','discovery-info');var tags=el('div','resource-tags');tags.appendChild(el('span','kind-badge',f._kind));if(f.r==='vip')tags.appendChild(el('span','vip-badge','VIP'));info.appendChild(tags);info.appendChild(el('h3',null,f.n));info.appendChild(el('p',null,[f.sb,f.lv].filter(Boolean).join(' · ')));var foot=el('div','discovery-foot');if(f._format)foot.appendChild(el('bdi','format-label',f._format));if(f._programme==='pioneer')foot.appendChild(el('span','programme-badge','المدرسة الرائدة'));else if(f.a)foot.appendChild(el('span',null,'escuila.info'));info.appendChild(foot);card.appendChild(info);card.addEventListener('click',function(){openFileDetails(f);});return card;}
+  function discoveryCard(f){var card=el('button','discovery-card');card.type='button';card.setAttribute('data-design-element','cards');card.appendChild(coverEl(f,false));var info=el('div','discovery-info');var tags=el('div','resource-tags');tags.appendChild(el('span','kind-badge',f._kind));if(f.r==='vip')tags.appendChild(el('span','vip-badge','VIP'));info.appendChild(tags);info.appendChild(el('h3',null,f.n));info.appendChild(el('p',null,[f.sb,f.lv].filter(Boolean).join(' · ')));var foot=el('div','discovery-foot');if(f._format)foot.appendChild(el('bdi','format-label',f._format));if(f._programme==='pioneer')foot.appendChild(el('span','programme-badge','المدرسة الرائدة'));else if(f.a)foot.appendChild(el('span',null,'escuila.info'));info.appendChild(foot);card.appendChild(info);card.addEventListener('click',function(){openFileDetails(f);});return card;}
 
   function appendLevelGrid(host) {
     var grid=el('div','level-grid');
@@ -1480,7 +1483,7 @@
     article.appendChild(el('h1','detail-name',f.n));if(f.date)article.appendChild(el('p','article-date',formatExpiry(f.date)));
     if(f.meta.description)article.appendChild(el('p','resource-description',f.meta.description));
     if(f._programme==='pioneer')article.appendChild(el('span','programme-badge','المدرسة الرائدة'));
-    var read=actionButton('عرض الملفات','folder','primary-btn',function(){push({type:'resourceLinks',file:f});});article.appendChild(read);
+    var read=actionButton((window.EscuilaControl&&window.EscuilaControl.settings.design&&window.EscuilaControl.settings.design.texts.files)||'عرض الملفات','folder','primary-btn',function(){push({type:'resourceLinks',file:f});});read.setAttribute('data-design-element','texts:files');article.appendChild(read);
     var source=actionButton('المصدر: escuila.info','externalLink','article-source source-button',function(){readArticle(f,source);});article.appendChild(source);article.appendChild(actionButton('مشاركة المورد','share','secondary-btn',function(){shareFile(f);}));
     if(state.online&&state.me&&state.me.is_admin){if(f.parentFile)article.appendChild(actionButton('إدارة الملفات والتصحيحات','shield','link-btn',function(){push({type:'resourceLinks',file:f});}));else article.appendChild(actionButton('ربط ملفات بهذا المورد','plus','link-btn',function(){apiFetch('/api/admin/site-resource/'+f.a,{method:'POST'}).then(function(r){push({type:'resourceEditor',id:r.item.id});}).catch(function(e){showToast(e.message);});}));}viewEl.appendChild(article);
     var similar=(state.articleFiles||[]).filter(function(a){return a.id!==f.id&&a.lv===f.lv&&a.sb===f.sb;}).slice(0,4);if(similar.length)viewEl.appendChild(hScrollRow('موارد ذات صلة',similar));
@@ -1510,12 +1513,12 @@
     function paint(result,failed){host.innerHTML='';var items=result&&Array.isArray(result.items)?result.items:[];filesLog('number of extracted files',items.length);
       if(failed){host.appendChild(el('p','empty-note',items.length?'تعذر تحديث الملفات حاليًا. الملفات المحفوظة متاحة.':'تعذر تحميل الملفات حاليًا'));host.appendChild(resourceButton('إعادة المحاولة','secondary-btn',retry));}
       else if(!items.length)host.appendChild(el('p','empty-note','الملفات غير متوفرة هنا'));
-      source.hidden=!!result&&!result.source_url&&!f.a&&!attachmentSources[key];source.hidden=!!result&&!result.source_url&&!f.a&&!attachmentSources[key];source.lastElementChild.textContent=failed&&!items.length?'فتح المورد في الموقع':items.length?'تحميل الملفات من الموقع':'تحميل من الموقع';
+      source.hidden=!!result&&!result.source_url&&!f.a&&!attachmentSources[key];source.dataset.sourceCaption=items.length?'files':'fallback';source.lastElementChild.textContent=failed&&!items.length?'فتح المورد في الموقع':items.length?'تحميل الملفات من الموقع':'تحميل من الموقع';
       if(items.length)host.appendChild(source);
-      items.forEach(function(item){var format=item.format||'',vip=item.is_vip!==false,blocked=item.reason==='attachment_vip_required'||(vip&&(!state.me||!state.me.vip&&!state.me.is_admin)&&!(item.is_vip===true&&item.locked===false)),box=el('article','attachment-card'+(vip?' attachment-protected':''));box.setAttribute('data-item',item.key);box.appendChild(svgIcon(vip||item.locked?'lock':/^XLS/.test(format)||format==='Excel'?'spreadsheet':/^PPT/.test(format)?'presentation':'fileText',23));var info=el('div','attachment-info');info.appendChild(el('h2',null,item.name));
+      items.forEach(function(item){var format=item.format||'',vip=item.is_vip!==false,blocked=item.reason==='attachment_vip_required'||(vip&&(!state.me||!state.me.vip&&!state.me.is_admin)&&!(item.is_vip===true&&item.locked===false)),box=el('article','attachment-card'+(vip?' attachment-protected':''));box.setAttribute('data-item',item.key);box.setAttribute('data-design-element','cards');box.appendChild(svgIcon(vip||item.locked?'lock':/^XLS/.test(format)||format==='Excel'?'spreadsheet':/^PPT/.test(format)?'presentation':'fileText',23));var info=el('div','attachment-info');info.appendChild(el('h2',null,item.name));
         var badges=el('div','attachment-badges');if(format)badges.appendChild(el('span','format-label',format));badges.appendChild(el('span',vip?'vip-badge':'attachment-free-badge',vip?'VIP · محمي':'مجاني'));info.appendChild(badges);if(item.available_on_site)info.appendChild(el('p','attachment-site-note','متاح أيضًا من الموقع'));info.appendChild(el('p','attachment-state',blocked?'خاص بالمشتركين داخل التطبيق':item.locked?'يتطلب استكمال شروط الوصول':vip?'متاح لحسابك داخل التطبيق':'متاح للجميع داخل التطبيق'));box.appendChild(info);var controls=el('div','attachment-actions'),feedback=el('div','attachment-feedback');feedback.setAttribute('aria-live','polite');
         if(blocked)attachmentAccessNotice(f,item,feedback,item.available_on_site===true);
-        else{var actions=item.open_only?['read']:format&&format!=='PDF'?['download']:['read','download'];actions.forEach(function(action){var label=action==='download'?'تحميل':format==='PDF'?'قراءة':'فتح';var b=actionButton(label,action==='read'?'bookOpen':'download',action==='read'?'primary-btn':'secondary-btn',function(){openAttachment(f,item,action,b,feedback,{});});controls.appendChild(b);});if(item.locked){feedback.classList.add('attachment-conditions');feedback.appendChild(el('strong',null,item.reason==='password_required'?'هذا الملف يتطلب كود الوصول.':'هذا الملف متاح بعد استكمال شروطه.'));feedback.appendChild(el('p',null,'اضغط قراءة أو تحميل للمتابعة.'));}}
+        else{var actions=item.open_only?['read']:format&&format!=='PDF'?['download']:['read','download'];actions.forEach(function(action){var label=action==='download'?'تحميل':format==='PDF'?'قراءة':'فتح';var b=actionButton(label,action==='read'?'bookOpen':'download',action==='read'?'primary-btn':'secondary-btn',function(){openAttachment(f,item,action,b,feedback,{});});b.setAttribute('data-reader-action',action);controls.appendChild(b);});if(item.locked){feedback.classList.add('attachment-conditions');feedback.appendChild(el('strong',null,item.reason==='password_required'?'هذا الملف يتطلب كود الوصول.':'هذا الملف متاح بعد استكمال شروطه.'));feedback.appendChild(el('p',null,'اضغط قراءة أو تحميل للمتابعة.'));}}
         if(controls.children.length)box.appendChild(controls);box.appendChild(feedback);
         if(result.can_manage&&state.me&&state.me.is_admin){var manage=el('div','attachment-manage');manage.appendChild(el('span',null,'الإتاحة داخل التطبيق'));var toggle=actionButton(vip?'جعل الملف مجانيًا':'حماية الملف VIP',vip?'fileText':'lock','secondary-btn',function(){toggle.disabled=true;apiFetch('/api/admin/attachment-access/'+attachmentPath(f),{method:'POST',body:{item:item.key,is_vip:!vip,version:item.access_version}}).then(function(){delete attachmentCache[key];showToast(vip?'أصبح الملف مجانيًا':'أصبحت حماية الملف VIP');render();}).catch(function(e){toggle.disabled=false;showToast(apiErrMsg(e));});});manage.appendChild(toggle);box.appendChild(manage);}host.appendChild(box);});
       if(!items.length)host.appendChild(source);
@@ -1531,7 +1534,7 @@
     if(state.me&&state.me.is_admin)viewEl.appendChild(el('p','attachment-admin-note','تغيير إتاحة المرفق لا يغيّر حماية المورد أو القسم.'));
     var fid=f.parentFile||(!f.a&&f.id);if(state.me&&state.me.is_admin&&fid)appendAttachmentAdmin(fid);
   }
-  function attachmentAccessNotice(f,item,host,hasSource){host.classList.add('attachment-conditions');host.appendChild(el('strong',null,'هذا الملف متاح للمشتركين فقط داخل التطبيق.'));host.appendChild(el('p',null,hasSource?'يمكنك تحميله من الموقع، أو استكمال شروط الوصول داخل البوت.':'استكمل شروط الوصول داخل البوت للقراءة أو التحميل.'));host.appendChild(actionButton('استكمال شروط الوصول في البوت','lock','secondary-btn',function(){openBotChat('vip');}));}
+  function attachmentAccessNotice(f,item,host,hasSource){var vipText=window.EscuilaControl&&window.EscuilaControl.settings.vip_text||{};host.classList.add('attachment-conditions');host.appendChild(el('strong',null,vipText.locked_text||'هذا الملف متاح للمشتركين فقط داخل التطبيق.'));host.appendChild(el('p',null,hasSource?(vipText.access_text||'يمكنك تحميله من الموقع، أو استكمال شروط الوصول داخل البوت.'):'استكمل شروط الوصول داخل البوت للقراءة أو التحميل.'));host.appendChild(actionButton('استكمال شروط الوصول في البوت','lock','secondary-btn',function(){openBotChat('vip');}));}
   function openAttachment(f,item,action,button,feedback,extra){
     button.disabled=true;feedback.innerHTML='';apiFetch('/api/resource-link-open/'+attachmentPath(f),{method:'POST',body:JSON.stringify(Object.assign({item:item.key,action:action},extra))}).then(function(r){
       if(r.mode==='primary'){var primary=state.fileById[r.file_id]||{id:r.file_id,n:item.name};if(action==='read')requestRead(primary);else requestDirectDownload(primary);}
@@ -1778,6 +1781,7 @@
     return bar;
   }
 
+  function pinnedOrder(a,b){return Number(!!b.pinned)-Number(!!a.pinned)||Number(a.order||0)-Number(b.order||0);}
   function orderedFiles(files, search) {
     var top=state.stack[state.stack.length-1],sort=top.sort||(search?'relevance':top.mode==='popular'?'popular':'newest');
     var control=el('label','library-sort');control.appendChild(el('span',null,'ترتيب الملفات'));var select=el('select');select.setAttribute('aria-label','ترتيب الملفات');
@@ -1785,7 +1789,7 @@
     choices.forEach(function(pair){var op=el('option',null,pair[1]);op.value=pair[0];select.appendChild(op);});select.value=sort;select.addEventListener('change',function(){top.sort=select.value;top._shown=0;render();});control.appendChild(select);viewEl.appendChild(control);
     if(sort==='name')files.sort(function(a,b){return a.n.localeCompare(b.n,'ar');});
     else if(sort==='popular')files.sort(function(a,b){return (b.k||0)-(a.k||0)||b.id-a.id;});
-    else if(sort==='newest')files.sort(function(a,b){return a.a&&b.a?(b.date||'').localeCompare(a.date||''):(Number(b.id)||0)-(Number(a.id)||0);});return files;
+    else if(sort==='newest')files.sort(function(a,b){return a.a&&b.a?(b.date||'').localeCompare(a.date||''):(Number(b.id)||0)-(Number(a.id)||0);});return files.sort(pinnedOrder);
   }
 
   /* ─── filtered results view ─── */
@@ -2114,7 +2118,7 @@
     box.appendChild(el('span','detail-badge '+(exclusive?'badge-vip':'badge-free'),exclusive?'محتوى حصري':'مجاني'));
     var meta=f.meta||{};
     var actions=el('div','file-detail-actions');
-    if(websiteResource(f))actions.appendChild(actionButton('عرض الملفات','folder','primary-btn',function(){push({type:'resourceLinks',file:f});}));
+    if(websiteResource(f))actions.appendChild(actionButton((window.EscuilaControl&&window.EscuilaControl.settings.design&&window.EscuilaControl.settings.design.texts.files)||'عرض الملفات','folder','primary-btn',function(){push({type:'resourceLinks',file:f});}));
     else {
       var kind=typeOf(f).key;
       var label={pdf:'قراءة PDF',img:'عرض الصورة',vid:'مشاهدة',aud:'استماع'}[kind]||'فتح الملف';
@@ -2194,7 +2198,7 @@
       showToast('نتحقق من حالة اشتراكك…');
       apiFetch('/api/me').then(function (r) {
         if (!r.user) throw new Error();
-        state.me = r.user; state.online = true; saveMeCache(r.user); render();
+        state.me = r.user;if(window.EscuilaControl)window.EscuilaControl.setRole(state.me&&state.me.is_admin?'admin':state.me&&state.me.vip?'vip':'ordinary'); state.online = true; saveMeCache(r.user); render();
         showToast('تم تحديث حالة اشتراكك');
       }).catch(function () { state.online = false; render(); showToast('تعذّر تحديث اشتراكك. حاول مجددًا.'); });
     }));
@@ -3411,6 +3415,7 @@
         return { bot_username: '', version: 0, stars_price: 0, mad_price: 0 };
       })
       .then(function (s) {
+        if(window.EscuilaControl&&s.control)window.EscuilaControl.apply(s.control);
         state.botUsername = s.bot_username || '';
         state.api = validApiBase(s.api);
         state.starsPrice = parseInt(s.stars_price, 10) || 0;
@@ -3439,7 +3444,7 @@
         render();
         updateTabbar();
         syncFavsFromCloud();
-        initSession();
+        if(window.EscuilaControl&&window.EscuilaControl.preview){window.EscuilaControl.onRole(function(role){state.me={vip:role==='vip'||role==='admin',is_admin:role==='admin'};state.online=role==='admin';render();});}else initSession();
         // deep link from the bot (startapp=cat_<id> / file_<id>) — once
         if (!state.startParamDone) {
           state.startParamDone = true;
@@ -3459,5 +3464,5 @@
   }
 
   // Recover during a rolling GitHub Pages update from an older HTML entry.
-  if(window.EscuilaDiscovery)boot();else{var discoveryScript=document.createElement('script');discoveryScript.src='discovery.js?v=20261005-product7';discoveryScript.onload=boot;discoveryScript.onerror=function(){viewEl.textContent='تعذّر تحميل المكتبة. أعد فتح التطبيق.';};document.head.appendChild(discoveryScript);}
+  if(window.EscuilaDiscovery)boot();else{var discoveryScript=document.createElement('script');discoveryScript.src='discovery.js?v=20261006-product9';discoveryScript.onload=boot;discoveryScript.onerror=function(){viewEl.textContent='تعذّر تحميل المكتبة. أعد فتح التطبيق.';};document.head.appendChild(discoveryScript);}
 })();
